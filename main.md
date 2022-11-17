@@ -1,0 +1,64 @@
+- focus:
+    - text layout.
+
+- todo:
+    - custom text layout:
+        - line breaking.
+        - `TextFormat::effect: usize`
+    - font api.
+        - query first, then pass opaque handles.
+            - never free for now.
+            - handles just point to a validated string.
+            - don't need any resources.
+            - but could later add resource caching (keeping font faces alive for a few frames/seconds after last use).
+        - default font on the context.
+            - or maybe require a text format for construction.
+            - `TextLayout` is a relatively low level api (in the gui system).
+            - well, actually, it's internal, as the "gui system" is merely an api.
+            - but (parts of) the library may of course be used in other programs.
+        - default line height for empty lines.
+    - context:
+        - should really be global, but then rust api can't be safe (isn't thread safe).
+        - thinking context must be `'static`.
+            - don't need all the unnecessary ref counting.
+            - context is effectively global data.
+            - to reduce memory usage, if an app only needs the context temporarily, can have a "release resources" api. then only the context struct remains, which is less than 1 KiB.
+    - more style:
+        - classes.
+        - rules.
+        - structured repr.
+    - project structure: library & examples.
+
+
+- backlog:
+    - text layout:
+        - text alignment.
+        - color font.
+        - ligature cursor positions.
+        - diacritics fallback.
+        - simple text optimiztion (on construction only, shaping during breaking isn't simple).
+        - creating derived text layouts for small deltas.
+        - min/max width.
+        - long line support: split up raw_spans into 16k pieces.
+        - solid RTL support.
+            - Ali A seems to know arabic.
+            - need to render consecutive rtl spans in reverse!
+            - parens are probably f'ed up too.
+    - layout:
+        - layout dependent render children struct?
+        - inline divs.
+        - padding & margin.
+        - min/max/fit_content.
+        - box sizing & border, border mode?
+    - tree mutation.
+    - caching.
+    - hit testing.
+    - hover & active.
+    - cursor.
+    - inputs (button, slider, text).
+    - overflow & scrolling.
+    - selection.
+    - animation, programmatic & transitions.
+    - vector graphics.
+
+
