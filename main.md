@@ -4,6 +4,10 @@
 - todo:
     - custom text layout:
         - line breaking.
+            - wrapping.
+            - fix trailing empty line.
+            - object positioning.
+                - thinking: set x during layout. compute y ad-hoc from line_index.
         - `TextFormat::effect: usize`
     - font api.
         - query first, then pass opaque handles.
@@ -23,11 +27,11 @@
             - don't need all the unnecessary ref counting.
             - context is effectively global data.
             - to reduce memory usage, if an app only needs the context temporarily, can have a "release resources" api. then only the context struct remains, which is less than 1 KiB.
+    - project structure: library & examples.
     - more style:
         - classes.
         - rules.
         - structured repr.
-    - project structure: library & examples.
 
 
 - backlog:

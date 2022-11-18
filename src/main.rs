@@ -126,7 +126,7 @@ impl Main {
             .. Default::default()
         };
 
-        let text_layout = {
+        let mut text_layout = {
             let mut b = TextLayoutBuilder::new(&ctx, default_format);
             b.set_font("Cambria");
             b.add_line("fit â â œ̃");
@@ -156,6 +156,7 @@ impl Main {
             b.add_line("😀🧱");
             b.build()
         };
+        text_layout.layout();
 
         let cursor = 0;
         let anchor = cursor;
@@ -183,9 +184,10 @@ impl Main {
             self.rt.Resize(&rt_size).unwrap();
             self.rt_size = rt_size;
 
-            // TEMP
-            //self.text_layout.SetMaxWidth(rt_size.width as f32).unwrap();
-            //self.text_layout.SetMaxHeight(rt_size.height as f32).unwrap();
+            self.text_layout.set_layout_width(rt_size.width as f32);
+            self.text_layout.set_layout_height(rt_size.height as f32);
+            // TEMP.
+            self.text_layout.layout();
         }
 
         self.rt.BeginDraw();

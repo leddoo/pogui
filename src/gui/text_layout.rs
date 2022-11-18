@@ -42,6 +42,8 @@ struct TextSpan {
     script: DWRITE_SCRIPT_ANALYSIS,
 
     width: f32,
+    ascent: f32,
+    drop:   f32,
 
     format: TextFormat,
     font_face: Option<IDWriteFontFace>,
@@ -56,13 +58,18 @@ struct TextSpan {
     glyph_offsets:  Vec<DWRITE_GLYPH_OFFSET>,
 }
 
+#[derive(Debug)]
+struct VisualSpan {
+    index: u32,
+}
+
 #[allow(dead_code)]
 #[derive(Debug)]
-struct Line {
+struct VisualLine {
     text_begin_utf8: u32,
     text_end_utf8:   u32,
 
-    spans: Vec<TextSpan>,
+    spans: Vec<VisualSpan>,
 
     width:    f32,
     height:   f32,
@@ -81,18 +88,114 @@ struct Object {
 }
 
 
+#[derive(Clone, Copy, Debug)]
+pub struct LayoutParams {
+    pub width:  f32,
+    pub height: f32,
+    pub wrap: bool,
+}
+
+impl Default for LayoutParams {
+    fn default() -> Self {
+        LayoutParams {
+            width:  f32::INFINITY,
+            height: f32::INFINITY,
+            wrap: false,
+        }
+    }
+}
+
+
 #[allow(dead_code)] // TEMP
 pub struct TextLayout {
     ctx: Ctx,
     text: Vec<u8>,
     objects: Vec<Object>,
-    lines: Vec<Line>,
+    spans: Vec<TextSpan>,
+    hard_lines: Vec<u32>, // end indices in spans array.
+    lines: Vec<VisualLine>,
     break_options: Vec<u32>, // bit vector.
+    layout_params: LayoutParams,
 }
 
 impl TextLayout {
     pub fn text(&self) -> &str {
         unsafe { core::str::from_utf8_unchecked(&self.text) }
+    }
+
+    pub fn set_layout_width(&mut self, w: f32) {
+        if !w.is_nan() && w != self.layout_params.width {
+            self.layout_params.width = w;
+        }
+    }
+
+    pub fn set_layout_height(&mut self, h: f32) {
+        if !h.is_nan() && h != self.layout_params.height {
+            self.layout_params.height = h;
+        }
+    }
+
+    #[allow(dead_code)] // TEMP
+    #[inline]
+    pub fn layout_params(&self) -> LayoutParams {
+        self.layout_params
+    }
+
+
+    pub fn layout(&mut self) {
+        // TEMP.
+        //let max_width = self.layout_params.width;
+
+        let mut lines = vec![];
+
+        let mut spans_cursor = 0;
+        for spans_end in &self.hard_lines {
+            let spans_begin = spans_cursor;
+            let spans_end   = *spans_end as usize;
+            spans_cursor = spans_end;
+            assert!(spans_begin < spans_end);
+
+            let text_begin_utf8 = self.spans[spans_begin].text_begin_utf8;
+            let text_end_utf8   = self.spans[spans_end - 1].text_end_utf8;
+
+            let mut visual_spans = vec![];
+
+            let mut width = 0.0;
+            let mut max_ascent = 0.0f32;
+            let mut max_drop   = 0.0f32; // descent + gap.
+
+            for span_index in spans_begin..spans_end {
+                let span = &mut self.spans[span_index];
+
+                // update object spans.
+                if span.object_index != u32::MAX {
+                    let object = &self.objects[span.object_index as usize];
+
+                    span.width  = object.size[0];
+                    span.ascent = object.baseline;
+                    span.drop   = object.size[1] - object.baseline;
+                }
+
+                width += span.width;
+                max_ascent = max_ascent.max(span.ascent);
+                max_drop   = max_drop  .max(span.drop);
+
+                visual_spans.push(VisualSpan {
+                    index: span_index as u32,
+                });
+            }
+
+            lines.push(VisualLine {
+                text_begin_utf8,
+                text_end_utf8,
+                spans: visual_spans,
+                width,
+                height:   max_ascent + max_drop,
+                baseline: max_ascent,
+            });
+        }
+
+        self.lines = lines;
     }
 }
 
@@ -119,6 +222,8 @@ impl TextLayout {
                 let mut x = 0.0;
 
                 for span in &line.spans {
+                    let span = &self.spans[span.index as usize];
+
                     if offset >= span.text_begin_utf8
                     && offset <  span.text_end_utf8 {
                         let local_offset = offset - span.text_begin_utf8;
@@ -170,6 +275,8 @@ impl TextLayout {
 
             let mut x = pos[0];
             for span in &line.spans {
+                let span = &self.spans[span.index as usize];
+
                 let y = cursor + line.baseline;
 
                 if span.object_index != u32::MAX {
@@ -187,6 +294,11 @@ impl TextLayout {
                     unsafe { rt.FillRectangle(&rect, brush) };
 
                     x += span.width;
+                    continue;
+                }
+
+                // empty line.
+                if span.text_begin_utf8 == span.text_end_utf8 {
                     continue;
                 }
 
@@ -435,14 +547,19 @@ impl TextLayoutBuilder {
         if self.text.len() == 0 {
             return TextLayout {
                 ctx: self.ctx,
-                text: vec![], objects: vec![],
-                lines: vec![], break_options: vec![],
+                text: vec![],
+                objects: vec![],
+                spans: vec![],
+                hard_lines: vec![],
+                lines: vec![],
+                break_options: vec![],
+                layout_params: Default::default(),
             };
         }
         self.flush_format();
         assert!(self.pre_spans.len() > 0);
 
-        let TextLayoutBuilder { ctx, text, objects, pre_spans, .. } = self;
+        let TextLayoutBuilder { ctx, text, objects, pre_spans, base_format, .. } = self;
         assert!(text.len() < (u32::MAX / 2) as usize);
 
         let (text16, utf16_to_utf8) = {
@@ -503,13 +620,30 @@ impl TextLayoutBuilder {
         let mut pspan_index = 0;
         let mut pspan = pre_spans[0];
 
-        let mut lines  = vec![];
+        let mut hard_lines = vec![];
+        let mut text_spans = vec![];
         let mut cursor = 0;
         for end in breaks.lines.iter() {
             let line_begin = cursor;
             let line_end   = *end;
             let line_len   = line_end - line_begin;
             cursor = line_end + 1;
+
+            // empty line
+            if line_len == 0 {
+                let text_begin_utf8 = utf16_to_utf8[line_begin as usize];
+                let text_end_utf8   = text_begin_utf8;
+                text_spans.push(TextSpan {
+                    text_begin_utf8, text_end_utf8,
+                    object_index: u32::MAX,
+                    ascent: base_format.font_size, // TEMP.
+                    format: base_format,
+                    .. Default::default()
+                });
+
+                hard_lines.push(text_spans.len() as u32);
+                continue;
+            }
 
             // reset spans sink.
             let mut spans = dw_spans.borrow_mut();
@@ -587,32 +721,17 @@ impl TextLayoutBuilder {
                 result
             };
 
-            let mut max_ascent = 0f32;
-            let mut max_drop   = 0f32; // descent + gap.
-            let mut line_width = 0f32;
-
             let mut spans = vec![];
             for raw_span in &mut raw_spans {
                 // inline object.
                 if raw_span.object_index != u32::MAX {
                     let object_index = raw_span.object_index;
-                    let object = &objects[object_index as usize];
-
-                    let ascent = object.baseline;
-                    let drop   = object.size[1] - object.baseline;
-                    max_ascent = max_ascent.max(ascent);
-                    max_drop   = max_drop  .max(drop);
-
-                    let width = object.size[0];
-                    line_width += width;
 
                     let text_begin_utf8 = utf16_to_utf8[raw_span.text_begin_utf16 as usize];
                     let text_end_utf8   = utf16_to_utf8[raw_span.text_end_utf16 as usize];
-
                     spans.push(TextSpan {
                         text_begin_utf8, text_end_utf8,
                         object_index,
-                        width,
                         .. Default::default()
                     });
 
@@ -662,16 +781,6 @@ impl TextLayoutBuilder {
                     }
                     let font = mapped_font.unwrap();
                     let face = font.CreateFontFace().unwrap();
-
-
-                    let mut font_metrics = Default::default();
-                    face.GetMetrics(&mut font_metrics);
-
-                    let font_scale = format.font_size / font_metrics.designUnitsPerEm as f32;
-                    let ascent = font_scale * font_metrics.ascent as f32;
-                    let drop   = font_scale * (font_metrics.descent as f32 + font_metrics.lineGap as f32);
-                    max_ascent = max_ascent.max(ascent);
-                    max_drop   = max_drop  .max(drop);
 
 
                     let string = &text16[cov_begin .. cov_end];
@@ -727,7 +836,13 @@ impl TextLayoutBuilder {
                     for dx in &glyph_advances {
                         width += dx;
                     }
-                    line_width += width;
+
+                    let mut font_metrics = Default::default();
+                    face.GetMetrics(&mut font_metrics);
+
+                    let font_scale = format.font_size / font_metrics.designUnitsPerEm as f32;
+                    let ascent = font_scale * font_metrics.ascent as f32;
+                    let drop   = font_scale * (font_metrics.descent as f32 + font_metrics.lineGap as f32);
 
                     // convert utf16 glyph map to utf8.
                     // replace 1-2 entries with 1-4 entries.
@@ -753,13 +868,13 @@ impl TextLayoutBuilder {
                         map
                     };
 
-                    spans.push(TextSpan {
+                    text_spans.push(TextSpan {
                         text_begin_utf8, text_end_utf8,
                         object_index: u32::MAX,
                         is_rtl, script,
                         format,
                         font_face: Some(face),
-                        width,
+                        width, ascent, drop,
                         glyph_map,
                         glyph_indices,
                         glyph_props,
@@ -769,20 +884,21 @@ impl TextLayoutBuilder {
                 }
             }
 
-            let text_begin_utf8 = utf16_to_utf8[line_begin as usize];
-            let text_end_utf8   = utf16_to_utf8[line_end as usize];
-            lines.push(Line {
-                text_begin_utf8, text_end_utf8,
-                spans,
-                width:    line_width,
-                height:   max_ascent + max_drop,
-                baseline: max_ascent,
-            });
+            hard_lines.push(text_spans.len() as u32);
         }
 
         let break_options = core::mem::replace(&mut breaks.options, vec![]);
 
-        return TextLayout { ctx, text, objects, lines, break_options };
+        return TextLayout {
+            ctx,
+            text,
+            objects,
+            spans: text_spans,
+            hard_lines,
+            lines: vec![],
+            break_options,
+            layout_params: Default::default(),
+        };
     }}
 }
 
