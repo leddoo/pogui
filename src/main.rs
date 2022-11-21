@@ -50,6 +50,7 @@ use windows::{
 mod unicode;
 mod win;
 mod ctx;
+mod fonts;
 mod gui;
 mod gui_main;
 
@@ -111,17 +112,10 @@ impl Main {
         let brush = rt.CreateSolidColorBrush(&D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }, None).unwrap();
 
 
-        let mut dw_system_fonts = None;
-        dw_factory.GetSystemFontCollection(&mut dw_system_fonts, false).unwrap();
-
-        let ctx = Box::leak(Box::new(CtxData {
-            dw_factory: dw_factory.clone(),
-            dw_system_fonts:    dw_system_fonts.unwrap(),
-            dw_system_fallback: dw_factory.GetSystemFontFallback().unwrap(),
-        }));
+        let ctx = Ctx::new();
 
         let default_format = TextFormat {
-            font: "Roboto",
+            font: ctx.font_query("Roboto").unwrap(),
             font_size: 36.0,
             .. Default::default()
         };
@@ -139,12 +133,12 @@ impl Main {
             b.add_line("hi there, this_is_a_super_long_word_that_is_longer_than_thirtytwo_bytes_to_test_the_break_iterator. hot damn!");
             b.add_line("just_a_single_word");
 
-            b.set_font("Cambria");
+            b.set_font(ctx.font_query("Cambria").unwrap());
             b.add_line("fit â â œ̃");
             b.reset_font();
             b.add_line("");
 
-            b.set_font("Comic Sans MS");
+            b.set_font(ctx.font_query("Comic Sans MS").unwrap());
             b.set_font_size(24.0);
             b.set_strikethrough(true);
             b.add_string("insaneo style");

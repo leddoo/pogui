@@ -1,13 +1,14 @@
 use core::cell::RefCell;
 use std::rc::Rc;
 use crate::win::*;
+use crate::fonts::FontFamilyId;
 use crate::ctx::*;
 use crate::unicode::*;
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextFormat {
-    pub font:          &'static str,
+    pub font:          FontFamilyId,
     pub font_size:     f32,
     pub font_weight:   u32,
     pub italic:        bool,
@@ -18,7 +19,7 @@ pub struct TextFormat {
 impl Default for TextFormat {
     fn default() -> Self {
         TextFormat {
-            font:          "", // TODO: 0 - the default font.
+            font:          FontFamilyId::DEFAULT,
             font_size:     16.0,
             font_weight:   400,
             italic:        false,
@@ -476,11 +477,10 @@ impl TextLayoutBuilder {
     }
 
 
-    // TEMP: font api.
-    pub fn set_font(&mut self, name: &'static str) {
-        if name != self.format.font {
+    pub fn set_font(&mut self, font: FontFamilyId) {
+        if font != self.format.font {
             self.flush_format();
-            self.format.font = name;
+            self.format.font = font;
         }
     }
 
@@ -742,8 +742,8 @@ impl TextLayoutBuilder {
                 let is_rtl = raw_span.is_rtl;
                 let script = raw_span.script;
 
-                let mut font: Vec<u16> = format.font.encode_utf16().collect();
-                font.push(0);
+                let fonts = ctx.fonts.borrow();
+                let font = fonts.font_name_utf16(format.font);
                 let font_weight = DWRITE_FONT_WEIGHT(format.font_weight as i32);
                 let font_style =
                     if format.italic { DWRITE_FONT_STYLE_ITALIC }
