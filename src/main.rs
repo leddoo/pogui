@@ -128,6 +128,17 @@ impl Main {
 
         let mut text_layout = {
             let mut b = TextLayoutBuilder::new(&ctx, default_format);
+            b.set_italic(true);
+            b.add_string("Eng");
+            b.set_italic(false);
+            b.set_bold(true);
+            b.add_string("lish");
+            b.set_bold(false);
+            b.add_line(" tea slaps.");
+
+            b.add_line("hi there, this_is_a_super_long_word_that_is_longer_than_thirtytwo_bytes_to_test_the_break_iterator. hot damn!");
+            b.add_line("just_a_single_word");
+
             b.set_font("Cambria");
             b.add_line("fit â â œ̃");
             b.reset_font();

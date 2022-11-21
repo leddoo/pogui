@@ -49,8 +49,8 @@ struct TextSpan {
     font_face: Option<IDWriteFontFace>,
 
     // utf8 offset (relative to text_begin_utf8)
-    // to glyph index.
-    glyph_map: Vec<u16>,
+    // to index of first glyph in glyph cluster.
+    cluster_map: Vec<u16>,
 
     glyph_indices:  Vec<u16>,
     glyph_props:    Vec<DWRITE_SHAPING_GLYPH_PROPERTIES>,
@@ -229,7 +229,7 @@ impl TextLayout {
                         let local_offset = offset - span.text_begin_utf8;
 
                         if span.object_index == u32::MAX {
-                            let glyph = span.glyph_map[local_offset as usize] as usize;
+                            let glyph = span.cluster_map[local_offset as usize] as usize;
                             for i in 0..glyph {
                                 x += span.glyph_advances[i];
                             }
@@ -439,7 +439,8 @@ impl TextLayoutBuilder {
         });
 
         self.flush_format();
-        self.text.push('?' as u8);
+        // TODO: verify that this actually has the desired breaking behavior.
+        self.text.push(0x00);
         self.flush_format_ex(index);
     }
 
@@ -595,7 +596,7 @@ impl TextLayoutBuilder {
 
         let dw_breaks = RefCell::new(DwSinkBreaks {
             pointer: 0,
-            options: vec![0; (text16.len() + 31) / 32],
+            options: vec![0; (text.len() + 31) / 32],
             lines:   vec![],
         });
         let dw_spans = RefCell::new(DwSinkSpans {
@@ -604,7 +605,8 @@ impl TextLayoutBuilder {
             scripts: vec![],
         });
 
-        let sink: IDWriteTextAnalysisSink = DwSink{
+        let sink: IDWriteTextAnalysisSink = DwSink {
+            utf16_to_utf8: utf16_to_utf8.as_slice(),
             breaks: &dw_breaks,
             spans:  &dw_spans,
         }.into();
@@ -670,7 +672,7 @@ impl TextLayoutBuilder {
                 script: DWRITE_SCRIPT_ANALYSIS,
             }
 
-            let mut raw_spans = {
+            let raw_spans = {
                 let spans = dw_spans.borrow();
 
                 let mut result = vec![];
@@ -721,17 +723,15 @@ impl TextLayoutBuilder {
                 result
             };
 
-            let mut spans = vec![];
-            for raw_span in &mut raw_spans {
+            for raw_span in &raw_spans {
                 // inline object.
                 if raw_span.object_index != u32::MAX {
-                    let object_index = raw_span.object_index;
-
                     let text_begin_utf8 = utf16_to_utf8[raw_span.text_begin_utf16 as usize];
                     let text_end_utf8   = utf16_to_utf8[raw_span.text_end_utf16 as usize];
-                    spans.push(TextSpan {
+
+                    text_spans.push(TextSpan {
                         text_begin_utf8, text_end_utf8,
-                        object_index,
+                        object_index: raw_span.object_index,
                         .. Default::default()
                     });
 
@@ -785,7 +785,7 @@ impl TextLayoutBuilder {
 
                     let string = &text16[cov_begin .. cov_end];
 
-                    let mut glyph_map  = vec![0; string.len()];
+                    let mut cluster_map  = vec![0; string.len()];
                     let mut text_props = vec![Default::default(); string.len()];
 
                     let max_len = 3 * string.len() / 2 + 16;
@@ -803,7 +803,7 @@ impl TextLayoutBuilder {
                         w!("en-us"), // TEMP
                         None, None, None, 0,
                         max_len as u32,
-                        glyph_map.as_mut_ptr(),
+                        cluster_map.as_mut_ptr(),
                         text_props.as_mut_ptr(),
                         glyph_indices.as_mut_ptr(),
                         glyph_props.as_mut_ptr(),
@@ -817,7 +817,7 @@ impl TextLayoutBuilder {
 
                     analyzer.GetGlyphPlacements(
                         PCWSTR(string.as_ptr()),
-                        glyph_map.as_ptr(),
+                        cluster_map.as_ptr(),
                         text_props.as_mut_ptr(),
                         string.len() as u32,
                         glyph_indices.as_ptr(),
@@ -846,17 +846,17 @@ impl TextLayoutBuilder {
 
                     // convert utf16 glyph map to utf8.
                     // replace 1-2 entries with 1-4 entries.
-                    let glyph_map = {
+                    let cluster_map = {
                         let mut map = Vec::with_capacity(text_utf8_len as usize);
 
                         let mut cursor = 0;
-                        while cursor < glyph_map.len() {
+                        while cursor < cluster_map.len() {
                             let at16 = cov_begin + cursor;
                             let at8  = utf16_to_utf8[at16] as usize;
 
                             let cp = utf8_next_code_point(&text, at8).unwrap_unchecked().0;
 
-                            let entry = glyph_map[cursor];
+                            let entry = cluster_map[cursor];
                             for _ in 0..utf8_len(cp) {
                                 map.push(entry);
                             }
@@ -875,7 +875,7 @@ impl TextLayoutBuilder {
                         format,
                         font_face: Some(face),
                         width, ascent, drop,
-                        glyph_map,
+                        cluster_map,
                         glyph_indices,
                         glyph_props,
                         glyph_advances,
@@ -944,6 +944,7 @@ impl IDWriteTextAnalysisSource_Impl for DwSource {
 
 #[windows::core::implement(IDWriteTextAnalysisSink)]
 struct DwSink {
+    utf16_to_utf8: *const [u32],
     breaks: *const RefCell<DwSinkBreaks>,
     spans:  *const RefCell<DwSinkSpans>,
 }
@@ -974,6 +975,7 @@ impl DwSinkSpans {
 
 impl IDWriteTextAnalysisSink_Impl for DwSink {
     fn SetLineBreakpoints(&self, pos: u32, len: u32, breaks: *const DWRITE_LINE_BREAKPOINT) -> windows::core::Result<()> {
+        let utf16_to_utf8 = unsafe { &*self.utf16_to_utf8 };
         let mut this = unsafe { (*self.breaks).borrow_mut() };
 
         // ensure calls are monotonic.
@@ -987,13 +989,23 @@ impl IDWriteTextAnalysisSink_Impl for DwSink {
         let breaks = unsafe { core::slice::from_raw_parts(breaks, len as usize) };
         for (i, brk) in breaks.iter().enumerate() {
             let bits = brk._bitfield;
-            let break_after = DWRITE_BREAK_CONDITION(((bits >> 2) & 0b11) as i32);
+            let break_before = DWRITE_BREAK_CONDITION(((bits >> 0) & 0b11) as i32);
+            let break_after  = DWRITE_BREAK_CONDITION(((bits >> 2) & 0b11) as i32);
 
-            if break_after == DWRITE_BREAK_CONDITION_MUST_BREAK {
+            // for hard line breaks, we want to exclude the break
+            // character from the line (it shouldn't be rendered).
+            // so the line "end" is the current character position.
+            let is_hard = break_after == DWRITE_BREAK_CONDITION_MUST_BREAK;
+
+            // for soft break options, we want to include the last
+            // character. so the break "end" is the next character.
+            let is_soft = break_before == DWRITE_BREAK_CONDITION_CAN_BREAK;
+
+            if is_hard {
                 this.lines.push(pos + i as u32);
             }
-            else if break_after == DWRITE_BREAK_CONDITION_CAN_BREAK {
-                let at = pos as usize + i;
+            else if is_soft {
+                let at = utf16_to_utf8[pos as usize + i] as usize;
                 let word = at / 32;
                 let bit  = at % 32;
                 this.options[word] |= 1 << bit;

@@ -4,7 +4,10 @@
 - todo:
     - custom text layout:
         - line breaking.
-            - wrapping.
+            - basic wrapping.
+                - stupid DS for soft lines.
+                - render & hit test soft lines.
+            - re-shape wrapping.
             - fix trailing empty line.
             - object positioning.
                 - thinking: set x during layout. compute y ad-hoc from line_index.
@@ -48,6 +51,7 @@
             - Ali A seems to know arabic.
             - need to render consecutive rtl spans in reverse!
             - parens are probably f'ed up too.
+        - color change in ligature: just split it, like for hit testing.
     - layout:
         - layout dependent render children struct?
         - inline divs.
