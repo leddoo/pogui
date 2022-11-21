@@ -390,9 +390,9 @@ pub struct TextLayoutBuilder {
 }
 
 impl TextLayoutBuilder {
-    pub fn new(ctx: &Ctx, format: TextFormat) -> Self {
+    pub fn new(ctx: Ctx, format: TextFormat) -> Self {
         Self {
-            ctx: ctx.clone(),
+            ctx,
             text: vec![],
             objects: vec![],
             base_format: format,

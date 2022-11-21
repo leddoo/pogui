@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::win::*;
 
 
@@ -9,11 +7,5 @@ pub struct CtxData {
     pub dw_system_fallback: IDWriteFontFallback,
 }
 
-#[derive(Clone)]
-pub struct Ctx (pub Rc<CtxData>);
-
-impl core::ops::Deref for Ctx {
-    type Target = CtxData;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
+pub type Ctx = &'static CtxData;
 

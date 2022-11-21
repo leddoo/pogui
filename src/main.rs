@@ -114,7 +114,7 @@ impl Main {
         let mut dw_system_fonts = None;
         dw_factory.GetSystemFontCollection(&mut dw_system_fonts, false).unwrap();
 
-        let ctx = Ctx(Rc::new(CtxData { 
+        let ctx = Box::leak(Box::new(CtxData {
             dw_factory: dw_factory.clone(),
             dw_system_fonts:    dw_system_fonts.unwrap(),
             dw_system_fallback: dw_factory.GetSystemFontFallback().unwrap(),
@@ -127,7 +127,7 @@ impl Main {
         };
 
         let mut text_layout = {
-            let mut b = TextLayoutBuilder::new(&ctx, default_format);
+            let mut b = TextLayoutBuilder::new(ctx, default_format);
             b.set_italic(true);
             b.add_string("Eng");
             b.set_italic(false);
