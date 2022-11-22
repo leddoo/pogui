@@ -4,14 +4,13 @@
 - todo:
     - custom text layout:
         - line breaking.
-            - basic wrapping.
-                - stupid DS for soft lines.
-                - render & hit test soft lines.
-            - re-shape wrapping.
-            - fix trailing empty line.
+            - extend current span for next break in same span.
+            - empty lines.
+                - default line height.
+                - fix trailing line.
             - object positioning.
                 - thinking: set x during layout. compute y ad-hoc from line_index.
-        - default line height for empty lines.
+            - detect re-shape wrapping.
         - `TextFormat::effect: usize`
     - project structure: library & examples.
     - more style:

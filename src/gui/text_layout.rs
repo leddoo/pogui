@@ -61,7 +61,14 @@ struct TextSpan {
 
 #[derive(Debug)]
 struct VisualSpan {
-    index: u32,
+    text_begin_utf8: u32,
+    text_end_utf8:   u32,
+
+    span_index:  u32,
+    glyph_begin: u32,
+    glyph_end:   u32,
+
+    width: f32,
 }
 
 #[allow(dead_code)]
@@ -144,56 +151,198 @@ impl TextLayout {
 
 
     pub fn layout(&mut self) {
-        // TEMP.
-        //let max_width = self.layout_params.width;
+        let max_width = self.layout_params.width;
+
+        // update object spans.
+        for span in &mut self.spans {
+            if span.object_index != u32::MAX {
+                let object = &self.objects[span.object_index as usize];
+                span.width  = object.size[0];
+                span.ascent = object.baseline;
+                span.drop   = object.size[1] - object.baseline;
+            }
+        }
+
 
         let mut lines = vec![];
 
-        let mut spans_cursor = 0;
+        let mut hard_lines_span_cursor = 0;
         for spans_end in &self.hard_lines {
-            let spans_begin = spans_cursor;
+            let spans_begin = hard_lines_span_cursor;
             let spans_end   = *spans_end as usize;
-            spans_cursor = spans_end;
+            hard_lines_span_cursor = spans_end;
             assert!(spans_begin < spans_end);
 
             let text_begin_utf8 = self.spans[spans_begin].text_begin_utf8;
             let text_end_utf8   = self.spans[spans_end - 1].text_end_utf8;
 
-            let mut visual_spans = vec![];
+            let mut bi = BreakIter {
+                at:  text_begin_utf8,
+                end: text_end_utf8,
+            };
 
-            let mut width = 0.0;
-            let mut max_ascent = 0.0f32;
-            let mut max_drop   = 0.0f32; // descent + gap.
+            let mut vspan_text_begin = text_begin_utf8;
+            let mut vspan_width = 0.0;
 
-            for span_index in spans_begin..spans_end {
-                let span = &mut self.spans[span_index];
+            let mut vline_text_begin = text_begin_utf8;
+            let mut vline_width = 0.0;
+            let mut max_ascent  = 0.0;
+            let mut max_drop    = 0.0;
 
-                // update object spans.
-                if span.object_index != u32::MAX {
-                    let object = &self.objects[span.object_index as usize];
+            let mut text_cursor = text_begin_utf8;
+            let mut span_cursor = spans_begin;
+            let mut cluster_cursor = 0;
 
-                    span.width  = object.size[0];
-                    span.ascent = object.baseline;
-                    span.drop   = object.size[1] - object.baseline;
+            let mut prev_break = text_begin_utf8;
+            let mut next_break;
+
+            let mut vspans = vec![];
+
+            // visit all breaks & create visual lines.
+            loop {
+                // NOTE: `line.begin <= next_break <= line.end`.
+                // and forall spans on a hard line,
+                // `spans[i].end == spans[i+1].begin` and
+                // `spans.last().end == line.end`.
+                next_break = bi.next(&self.break_options);
+
+                let (new_text_cursor, new_span_cursor, new_cluster_cursor,
+                    new_vline_width, new_vspan_width, delta_width) =
+                {
+                    let mut line_width  = vline_width;
+                    let mut span_width  = vspan_width;
+                    let mut delta_width = 0.0;
+
+                    let mut text_at    = text_cursor;
+                    let mut span_at    = span_cursor;
+                    let mut cluster_at = cluster_cursor;
+
+                    // skip full spans.
+                    while text_at < next_break {
+                        let span = &self.spans[span_at];
+                        if next_break < span.text_end_utf8 {
+                            break;
+                        }
+
+                        let width = span.width - span_width;
+                        line_width  += width;
+                        delta_width += width;
+                        span_width   = 0.0;
+
+                        text_at    = span.text_end_utf8;
+                        span_at   += 1;
+                        cluster_at = 0;
+                    }
+
+                    // TODO: is this actually correct for inline objects?
+                    let span = &self.spans[span_at];
+                    if text_at < next_break && span.object_index == u32::MAX {
+                        let break_rel = next_break - span.text_begin_utf8;
+                        let cluster_end = span.cluster_map[break_rel as usize];
+
+                        for i in cluster_at as usize .. cluster_end as usize {
+                            let width = span.glyph_advances[i];
+                            line_width  += width;
+                            delta_width += width;
+                            span_width  += width;
+                        }
+
+                        cluster_at = cluster_end;
+                    }
+                    text_at = next_break;
+
+                    (text_at, span_at, cluster_at, line_width, span_width, delta_width)
+                };
+
+                if new_vline_width > max_width {
+                    lines.push(VisualLine {
+                        text_begin_utf8: vline_text_begin,
+                        text_end_utf8:   text_cursor,
+                        spans: vspans,
+                        width: vline_width,
+                        height: max_ascent + max_drop,
+                        baseline: max_ascent,
+                    });
+
+                    vline_text_begin = text_cursor;
+                    vline_width = delta_width;
+                    max_ascent  = 0.0;
+                    max_drop    = 0.0;
+                    vspans = vec![];
+                }
+                else {
+                    vline_width = new_vline_width;
                 }
 
-                width += span.width;
-                max_ascent = max_ascent.max(span.ascent);
-                max_drop   = max_drop  .max(span.drop);
+                for span_index in span_cursor..new_span_cursor {
+                    let span = &self.spans[span_index];
 
-                visual_spans.push(VisualSpan {
-                    index: span_index as u32,
+                    max_ascent = max_ascent.max(span.ascent);
+                    max_drop   = max_drop  .max(span.drop);
+
+                    vspans.push(VisualSpan {
+                        text_begin_utf8: vspan_text_begin,
+                        text_end_utf8:   span.text_end_utf8,
+                        span_index: span_index as u32,
+                        glyph_begin: cluster_cursor as u32,
+                        glyph_end:   span.glyph_indices.len() as u32,
+                        width: span.width - vspan_width,
+                    });
+
+                    vspan_text_begin = span.text_end_utf8;
+                    vspan_width = 0.0;
+
+                    cluster_cursor = 0;
+                }
+
+                // TODO: current vspan instead.
+                // TODO: move ascent comp into width loop?
+                if cluster_cursor < new_cluster_cursor {
+                    let span = &self.spans[new_span_cursor];
+
+                    max_ascent = max_ascent.max(span.ascent);
+                    max_drop   = max_drop  .max(span.drop);
+
+                    let width =
+                        if new_span_cursor != span_cursor {
+                            new_vspan_width
+                        }
+                        else { delta_width };
+
+                    vspans.push(VisualSpan {
+                        text_begin_utf8: vspan_text_begin,
+                        text_end_utf8:   new_text_cursor,
+                        span_index:      new_span_cursor as u32,
+                        glyph_begin:     cluster_cursor as u32,
+                        glyph_end:       new_cluster_cursor as u32,
+                        width,
+                    });
+                }
+
+                vspan_width = new_vspan_width;
+
+                text_cursor    = new_text_cursor;
+                span_cursor    = new_span_cursor;
+                cluster_cursor = new_cluster_cursor;
+
+
+                if next_break == prev_break {
+                    break;
+                }
+                prev_break = next_break;
+            }
+            assert_eq!(text_cursor, text_end_utf8);
+
+            if vline_text_begin != text_end_utf8 {
+                lines.push(VisualLine {
+                    text_begin_utf8: vline_text_begin,
+                    text_end_utf8:   text_cursor,
+                    spans: vspans,
+                    width: vline_width,
+                    height: max_ascent + max_drop,
+                    baseline: max_ascent,
                 });
             }
-
-            lines.push(VisualLine {
-                text_begin_utf8,
-                text_end_utf8,
-                spans: visual_spans,
-                width,
-                height:   max_ascent + max_drop,
-                baseline: max_ascent,
-            });
         }
 
         self.lines = lines;
@@ -222,17 +371,18 @@ impl TextLayout {
             if offset >= line.text_begin_utf8 && offset <= line.text_end_utf8 {
                 let mut x = 0.0;
 
-                for span in &line.spans {
-                    let span = &self.spans[span.index as usize];
+                for vspan in &line.spans {
+                    let tspan = &self.spans[vspan.span_index as usize];
 
-                    if offset >= span.text_begin_utf8
-                    && offset <  span.text_end_utf8 {
-                        let local_offset = offset - span.text_begin_utf8;
+                    if offset >= vspan.text_begin_utf8
+                    && offset <  vspan.text_end_utf8 {
+                        let local_offset = offset - tspan.text_begin_utf8;
 
-                        if span.object_index == u32::MAX {
-                            let glyph = span.cluster_map[local_offset as usize] as usize;
-                            for i in 0..glyph {
-                                x += span.glyph_advances[i];
+                        if tspan.object_index == u32::MAX {
+                            let glyph_begin = vspan.glyph_begin as usize;
+                            let glyph = tspan.cluster_map[local_offset as usize] as usize;
+                            for i in glyph_begin..glyph {
+                                x += tspan.glyph_advances[i];
                             }
                         }
 
@@ -243,7 +393,7 @@ impl TextLayout {
                         };
                     }
 
-                    x += span.width;
+                    x += vspan.width;
                 }
 
                 return PosMetrics {
@@ -275,13 +425,13 @@ impl TextLayout {
             unsafe { rt.DrawRectangle(&rect, brush, 1.0, None) };
 
             let mut x = pos[0];
-            for span in &line.spans {
-                let span = &self.spans[span.index as usize];
+            for vspan in &line.spans {
+                let tspan = &self.spans[vspan.span_index as usize];
 
                 let y = cursor + line.baseline;
 
-                if span.object_index != u32::MAX {
-                    let object = &self.objects[span.object_index as usize];
+                if tspan.object_index != u32::MAX {
+                    let object = &self.objects[tspan.object_index as usize];
 
                     let y = y - object.baseline;
                     let rect = D2D_RECT_F {
@@ -294,28 +444,32 @@ impl TextLayout {
                     // TEMP.
                     unsafe { rt.FillRectangle(&rect, brush) };
 
-                    x += span.width;
+                    x += vspan.width;
                     continue;
                 }
 
                 // empty line.
-                if span.text_begin_utf8 == span.text_end_utf8 {
+                if vspan.text_begin_utf8 == vspan.text_end_utf8 {
                     continue;
                 }
 
-                let rtl_offset = if span.is_rtl { span.width } else { 0.0 };
+                let rtl_offset = if tspan.is_rtl { vspan.width } else { 0.0 };
 
-                let face = span.font_face.as_ref().unwrap();
+                let face = tspan.font_face.as_ref().unwrap();
 
+                let glyph_count = vspan.glyph_end - vspan.glyph_begin;
+                let glyph_indices  = &tspan.glyph_indices[vspan.glyph_begin as usize];
+                let glyph_advances = &tspan.glyph_advances[vspan.glyph_begin as usize];
+                let glyph_offsets  = &tspan.glyph_offsets[vspan.glyph_begin as usize];
                 let run = DWRITE_GLYPH_RUN {
                     fontFace: Some(face.clone()),
-                    fontEmSize: span.format.font_size,
-                    glyphCount: span.glyph_indices.len() as u32,
-                    glyphIndices: span.glyph_indices.as_ptr(),
-                    glyphAdvances: span.glyph_advances.as_ptr(),
-                    glyphOffsets: span.glyph_offsets.as_ptr(),
+                    fontEmSize: tspan.format.font_size,
+                    glyphCount: glyph_count,
+                    glyphIndices: glyph_indices,
+                    glyphAdvances: glyph_advances,
+                    glyphOffsets: glyph_offsets,
                     isSideways: false.into(),
-                    bidiLevel: span.is_rtl as u32,
+                    bidiLevel: tspan.is_rtl as u32,
                 };
 
                 let pos = D2D_POINT_2F {
@@ -325,15 +479,15 @@ impl TextLayout {
                 unsafe { rt.DrawGlyphRun(pos, &run, brush, Default::default()) };
 
 
-                if span.format.underline || span.format.strikethrough {
+                if tspan.format.underline || tspan.format.strikethrough {
                     let mut metrics = Default::default();
                     unsafe { face.GetMetrics(&mut metrics) };
 
-                    let scale = span.format.font_size / metrics.designUnitsPerEm as f32;
+                    let scale = tspan.format.font_size / metrics.designUnitsPerEm as f32;
 
                     // TODO: should these be pixel aligned?
 
-                    if span.format.underline {
+                    if tspan.format.underline {
                         let offset = scale * metrics.underlinePosition as f32;
                         let height = scale * metrics.underlineThickness as f32;
 
@@ -341,13 +495,13 @@ impl TextLayout {
                         let rect = D2D_RECT_F {
                             left:   x,
                             top:    y - height/2.0,
-                            right:  x + span.width,
+                            right:  x + vspan.width,
                             bottom: y + height/2.0,
                         };
                         unsafe { rt.FillRectangle(&rect, brush) };
                     }
 
-                    if span.format.strikethrough {
+                    if tspan.format.strikethrough {
                         let offset = scale * metrics.strikethroughPosition as f32;
                         let height = scale * metrics.strikethroughThickness as f32;
 
@@ -355,14 +509,14 @@ impl TextLayout {
                         let rect = D2D_RECT_F {
                             left:   x,
                             top:    y - height/2.0,
-                            right:  x + span.width,
+                            right:  x + vspan.width,
                             bottom: y + height/2.0,
                         };
                         unsafe { rt.FillRectangle(&rect, brush) };
                     }
                 }
 
-                x += span.width;
+                x += vspan.width;
             }
 
             cursor += line.height;
@@ -440,7 +594,10 @@ impl TextLayoutBuilder {
         });
 
         self.flush_format();
-        // TODO: verify that this actually has the desired breaking behavior.
+        // NOTE: represent as null byte.
+        // seems to have decent break behavior.
+        // less confusing cursor positions than
+        // the multi-byte object replacement char.
         self.text.push(0x00);
         self.flush_format_ex(index);
     }
@@ -617,6 +774,7 @@ impl TextLayoutBuilder {
         analyzer.AnalyzeLineBreakpoints(&source, 0, text16.len() as u32, &sink).unwrap();
 
         let mut breaks = dw_breaks.borrow_mut();
+        let breaks = &mut *breaks;
         breaks.lines.push(text16.len() as u32);
 
         let mut pspan_index = 0;
@@ -728,6 +886,11 @@ impl TextLayoutBuilder {
                 if raw_span.object_index != u32::MAX {
                     let text_begin_utf8 = utf16_to_utf8[raw_span.text_begin_utf16 as usize];
                     let text_end_utf8   = utf16_to_utf8[raw_span.text_end_utf16 as usize];
+
+                    // add break option before & after.
+                    // TODO: maybe don't add one after if next char is whitespace?
+                    breaks.options[text_begin_utf8 as usize / 32] |= 1 << (text_begin_utf8 % 32);
+                    breaks.options[text_end_utf8   as usize / 32] |= 1 << (text_end_utf8   % 32);
 
                     text_spans.push(TextSpan {
                         text_begin_utf8, text_end_utf8,
@@ -1033,4 +1196,41 @@ impl IDWriteTextAnalysisSink_Impl for DwSink {
         return Err(windows::Win32::Foundation::E_NOTIMPL.into());
     }
 }
+
+
+struct BreakIter {
+    at:  u32,
+    end: u32,
+}
+
+impl BreakIter {
+    fn next(&mut self, break_options: &[u32]) -> u32 {
+        while self.at < self.end {
+            let word = self.at / 32;
+            let bit  = self.at % 32;
+
+            let mut mask = break_options[word as usize];
+
+            // clear bits up to (and including) at.
+            mask &= !((1 << bit) - 1) << 1;
+
+            if mask != 0 {
+                let offset = mask.trailing_zeros();
+                self.at = 32*word + offset;
+                if self.at < self.end {
+                    return self.at;
+                }
+                else {
+                    return self.end;
+                }
+            }
+            else {
+                self.at = 32*(word + 1);
+            }
+        }
+
+        return self.end;
+    }
+}
+
 
