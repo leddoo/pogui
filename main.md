@@ -4,13 +4,16 @@
 - todo:
     - custom text layout:
         - line breaking.
-            - extend current span for next break in same span.
             - empty lines.
                 - default line height.
                 - fix trailing line.
             - object positioning.
                 - thinking: set x during layout. compute y ad-hoc from line_index.
             - detect re-shape wrapping.
+        - cursor positions:
+            - fix crash.
+            - pos to text.
+            - vertical cursor movement.
         - `TextFormat::effect: usize`
     - project structure: library & examples.
     - more style:

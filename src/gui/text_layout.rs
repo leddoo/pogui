@@ -176,173 +176,32 @@ impl TextLayout {
             let text_begin_utf8 = self.spans[spans_begin].text_begin_utf8;
             let text_end_utf8   = self.spans[spans_end - 1].text_end_utf8;
 
-            let mut bi = BreakIter {
-                at:  text_begin_utf8,
-                end: text_end_utf8,
+            let mut lb = LineBreaker {
+                breaks: BreakIter {
+                    at: text_begin_utf8,
+                    end: text_end_utf8,
+                },
+                prev_break: 0,
+                text_begin: text_begin_utf8,
+                span_begin: spans_begin,
+                cluster_begin: 0,
+                segment: BreakSegment {
+                    text_cursor: text_begin_utf8,
+                    span_cursor: spans_begin,
+                    cluster_cursor: 0,
+                    line_width: 0.0, span_width: 0.0, width: 0.0,
+                },
             };
 
-            let mut vspan_text_begin = text_begin_utf8;
-            let mut vspan_width = 0.0;
-
-            let mut vline_text_begin = text_begin_utf8;
-            let mut vline_width = 0.0;
-            let mut max_ascent  = 0.0;
-            let mut max_drop    = 0.0;
-
-            let mut text_cursor = text_begin_utf8;
-            let mut span_cursor = spans_begin;
-            let mut cluster_cursor = 0;
-
-            let mut prev_break = text_begin_utf8;
-            let mut next_break;
-
-            let mut vspans = vec![];
-
-            // visit all breaks & create visual lines.
-            loop {
-                // NOTE: `line.begin <= next_break <= line.end`.
-                // and forall spans on a hard line,
-                // `spans[i].end == spans[i+1].begin` and
-                // `spans.last().end == line.end`.
-                next_break = bi.next(&self.break_options);
-
-                let (new_text_cursor, new_span_cursor, new_cluster_cursor,
-                    new_vline_width, new_vspan_width, delta_width) =
-                {
-                    let mut line_width  = vline_width;
-                    let mut span_width  = vspan_width;
-                    let mut delta_width = 0.0;
-
-                    let mut text_at    = text_cursor;
-                    let mut span_at    = span_cursor;
-                    let mut cluster_at = cluster_cursor;
-
-                    // skip full spans.
-                    while text_at < next_break {
-                        let span = &self.spans[span_at];
-                        if next_break < span.text_end_utf8 {
-                            break;
-                        }
-
-                        let width = span.width - span_width;
-                        line_width  += width;
-                        delta_width += width;
-                        span_width   = 0.0;
-
-                        text_at    = span.text_end_utf8;
-                        span_at   += 1;
-                        cluster_at = 0;
-                    }
-
-                    // TODO: is this actually correct for inline objects?
-                    let span = &self.spans[span_at];
-                    if text_at < next_break && span.object_index == u32::MAX {
-                        let break_rel = next_break - span.text_begin_utf8;
-                        let cluster_end = span.cluster_map[break_rel as usize];
-
-                        for i in cluster_at as usize .. cluster_end as usize {
-                            let width = span.glyph_advances[i];
-                            line_width  += width;
-                            delta_width += width;
-                            span_width  += width;
-                        }
-
-                        cluster_at = cluster_end;
-                    }
-                    text_at = next_break;
-
-                    (text_at, span_at, cluster_at, line_width, span_width, delta_width)
-                };
-
-                if new_vline_width > max_width {
-                    lines.push(VisualLine {
-                        text_begin_utf8: vline_text_begin,
-                        text_end_utf8:   text_cursor,
-                        spans: vspans,
-                        width: vline_width,
-                        height: max_ascent + max_drop,
-                        baseline: max_ascent,
-                    });
-
-                    vline_text_begin = text_cursor;
-                    vline_width = delta_width;
-                    max_ascent  = 0.0;
-                    max_drop    = 0.0;
-                    vspans = vec![];
+            while let Some(seg) = lb.next_segment(self) {
+                if seg.line_width > max_width {
+                    lb.start_new_line(self, seg, &mut lines);
                 }
                 else {
-                    vline_width = new_vline_width;
+                    lb.add_to_line(seg);
                 }
-
-                for span_index in span_cursor..new_span_cursor {
-                    let span = &self.spans[span_index];
-
-                    max_ascent = max_ascent.max(span.ascent);
-                    max_drop   = max_drop  .max(span.drop);
-
-                    vspans.push(VisualSpan {
-                        text_begin_utf8: vspan_text_begin,
-                        text_end_utf8:   span.text_end_utf8,
-                        span_index: span_index as u32,
-                        glyph_begin: cluster_cursor as u32,
-                        glyph_end:   span.glyph_indices.len() as u32,
-                        width: span.width - vspan_width,
-                    });
-
-                    vspan_text_begin = span.text_end_utf8;
-                    vspan_width = 0.0;
-
-                    cluster_cursor = 0;
-                }
-
-                // TODO: current vspan instead.
-                // TODO: move ascent comp into width loop?
-                if cluster_cursor < new_cluster_cursor {
-                    let span = &self.spans[new_span_cursor];
-
-                    max_ascent = max_ascent.max(span.ascent);
-                    max_drop   = max_drop  .max(span.drop);
-
-                    let width =
-                        if new_span_cursor != span_cursor {
-                            new_vspan_width
-                        }
-                        else { delta_width };
-
-                    vspans.push(VisualSpan {
-                        text_begin_utf8: vspan_text_begin,
-                        text_end_utf8:   new_text_cursor,
-                        span_index:      new_span_cursor as u32,
-                        glyph_begin:     cluster_cursor as u32,
-                        glyph_end:       new_cluster_cursor as u32,
-                        width,
-                    });
-                }
-
-                vspan_width = new_vspan_width;
-
-                text_cursor    = new_text_cursor;
-                span_cursor    = new_span_cursor;
-                cluster_cursor = new_cluster_cursor;
-
-
-                if next_break == prev_break {
-                    break;
-                }
-                prev_break = next_break;
             }
-            assert_eq!(text_cursor, text_end_utf8);
-
-            if vline_text_begin != text_end_utf8 {
-                lines.push(VisualLine {
-                    text_begin_utf8: vline_text_begin,
-                    text_end_utf8:   text_cursor,
-                    spans: vspans,
-                    width: vline_width,
-                    height: max_ascent + max_drop,
-                    baseline: max_ascent,
-                });
-            }
+            lb.finalize(self, &mut lines);
         }
 
         self.lines = lines;
@@ -1230,6 +1089,211 @@ impl BreakIter {
         }
 
         return self.end;
+    }
+}
+
+
+struct LineBreaker {
+    breaks: BreakIter,
+
+    prev_break: u32,
+
+    text_begin:    u32,
+    span_begin:    usize,
+    cluster_begin: u32,
+
+    segment: BreakSegment,
+}
+
+struct BreakSegment {
+    text_cursor:    u32,
+    span_cursor:    usize,
+    cluster_cursor: u32,
+
+    line_width: f32,
+    span_width: f32,
+    width:      f32,
+}
+
+impl LineBreaker {
+    fn next_segment(&mut self, tl: &TextLayout) -> Option<BreakSegment> {
+        let prev_break = self.prev_break;
+        let next_break = self.breaks.next(&tl.break_options);
+        if next_break == prev_break {
+            return None;
+        }
+        self.prev_break = next_break;
+
+        let mut line_width = self.segment.line_width;
+        let mut span_width = self.segment.span_width;
+        let mut seg_width  = 0.0;
+
+        let mut text_cursor    = self.segment.text_cursor;
+        let mut span_cursor    = self.segment.span_cursor;
+        let mut cluster_cursor = self.segment.cluster_cursor;
+
+        // skip full spans.
+        while text_cursor < next_break {
+            let span = &tl.spans[span_cursor];
+            if next_break < span.text_end_utf8 {
+                break;
+            }
+
+            let width = span.width - span_width;
+            line_width += width;
+            span_width  = 0.0;
+            seg_width  += width;
+
+            text_cursor    = span.text_end_utf8;
+            span_cursor   += 1;
+            cluster_cursor = 0;
+        }
+
+        // TODO: is this actually correct for inline objects?
+        let span = &tl.spans[span_cursor];
+        if text_cursor < next_break && span.object_index == u32::MAX {
+            let break_rel = next_break - span.text_begin_utf8;
+            let cluster_end = span.cluster_map[break_rel as usize] as u32;
+
+            for i in cluster_cursor as usize .. cluster_end as usize {
+                let width = span.glyph_advances[i];
+                line_width += width;
+                span_width += width;
+                seg_width  += width;
+            }
+
+            cluster_cursor = cluster_end;
+        }
+        text_cursor = next_break;
+
+        return Some(BreakSegment {
+            text_cursor, span_cursor, cluster_cursor,
+            line_width, span_width, width: seg_width
+        });
+    }
+
+    fn add_to_line(&mut self, segment: BreakSegment) {
+        self.segment = segment;
+    }
+
+    fn finish_line(&mut self, tl: &TextLayout, lines: &mut Vec<VisualLine>) {
+        // TODO: empty lines?
+        if self.segment.text_cursor == self.text_begin {
+            return;
+        }
+
+        let text_begin  = self.text_begin;
+        let text_end    = self.segment.text_cursor;
+        let span_last   = self.segment.span_cursor;
+        let cluster_end = self.segment.cluster_cursor;
+
+        let mut span_cursor = self.span_begin;
+
+        let mut spans = vec![];
+        let mut max_ascent = 0.0f32;
+        let mut max_drop   = 0.0f32;
+
+        // incomplete leading span.
+        if self.cluster_begin != 0 {
+            let span = &tl.spans[span_cursor];
+
+            let glyph_begin = self.cluster_begin;
+
+            let (text_end_utf8, glyph_end);
+            if span_cursor < span_last {
+                text_end_utf8 = span.text_end_utf8;
+                glyph_end     = span.glyph_indices.len() as u32;
+            }
+            else {
+                text_end_utf8 = text_end;
+                glyph_end     = cluster_end;
+            }
+
+            let mut width = 0.0;
+            for i in glyph_begin as usize .. glyph_end as usize {
+                width += span.glyph_advances[i];
+            }
+
+            spans.push(VisualSpan {
+                text_begin_utf8: text_begin,
+                text_end_utf8,
+                span_index: span_cursor as u32,
+                glyph_begin, glyph_end,
+                width,
+            });
+
+            max_ascent = max_ascent.max(span.ascent);
+            max_drop   = max_drop  .max(span.drop);
+
+            span_cursor += 1;
+        }
+
+        // complete middle spans.
+        while span_cursor < span_last {
+            let span = &tl.spans[span_cursor];
+
+            spans.push(VisualSpan {
+                text_begin_utf8: span.text_begin_utf8,
+                text_end_utf8:   span.text_end_utf8,
+                span_index: span_cursor as u32,
+                glyph_begin: 0,
+                glyph_end: span.glyph_indices.len() as u32,
+                width: span.width,
+            });
+
+            max_ascent = max_ascent.max(span.ascent);
+            max_drop   = max_drop  .max(span.drop);
+
+            span_cursor += 1;
+        }
+
+        // incomplete trailing span.
+        if span_cursor == span_last && cluster_end != 0 {
+            let span = &tl.spans[span_last];
+
+            let mut width = 0.0;
+            for i in 0 .. cluster_end as usize {
+                width += span.glyph_advances[i];
+            }
+
+            spans.push(VisualSpan {
+                text_begin_utf8: span.text_begin_utf8,
+                text_end_utf8:   text_end,
+                span_index: span_last as u32,
+                glyph_begin: 0,
+                glyph_end: cluster_end,
+                width,
+            });
+
+            max_ascent = max_ascent.max(span.ascent);
+            max_drop   = max_drop  .max(span.drop);
+        }
+
+
+        let width    = self.segment.line_width;
+        let height   = max_ascent + max_drop;
+        let baseline = max_ascent;
+
+        lines.push(VisualLine {
+            text_begin_utf8: text_begin,
+            text_end_utf8:   text_end,
+            spans,
+            width, height, baseline,
+        });
+
+        self.text_begin    = text_end;
+        self.span_begin    = span_last;
+        self.cluster_begin = cluster_end;
+    }
+
+    fn start_new_line(&mut self, tl: &TextLayout, segment: BreakSegment, lines: &mut Vec<VisualLine>) {
+        self.finish_line(tl, lines);
+        self.segment = segment;
+        self.segment.line_width = self.segment.width;
+    }
+
+    fn finalize(&mut self, tl: &TextLayout, lines: &mut Vec<VisualLine>) {
+        self.finish_line(tl, lines);
     }
 }
 
