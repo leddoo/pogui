@@ -178,14 +178,14 @@ impl TextLayout {
 
             // empty line.
             if text_begin_utf8 == text_end_utf8 {
-                // TODO: query actual line height & base line for current font.
+                let span = &self.spans[spans_begin];
                 lines.push(VisualLine {
                     text_begin_utf8,
                     text_end_utf8,
                     spans: vec![],
                     width: 0.0,
-                    height: 69.0,
-                    baseline: 5.0,
+                    height:   span.ascent + span.drop,
+                    baseline: span.ascent,
                 });
             }
             else {
@@ -359,6 +359,8 @@ impl TextLayout {
                     let scale = tspan.format.font_size / metrics.designUnitsPerEm as f32;
 
                     // TODO: should these be pixel aligned?
+                    // thinking use that "text renderer callback" idea.
+                    // then the renderer can decide.
 
                     if tspan.format.underline {
                         let offset = scale * metrics.underlinePosition as f32;
@@ -590,7 +592,7 @@ impl TextLayoutBuilder {
         self.flush_format();
         assert!(self.pre_spans.len() > 0);
 
-        let TextLayoutBuilder { ctx, text, objects, pre_spans, base_format, .. } = self;
+        let TextLayoutBuilder { ctx, text, objects, pre_spans, .. } = self;
         assert!(text.len() < (u32::MAX / 2) as usize);
 
         let (text16, utf16_to_utf8) = {
@@ -676,11 +678,36 @@ impl TextLayoutBuilder {
             if line_len == 0 {
                 let text_begin_utf8 = utf16_to_utf8[line_begin as usize];
                 let text_end_utf8   = text_begin_utf8;
+
+                let pos_utf8 = utf16_to_utf8[text_begin_utf8 as usize];
+                while pos_utf8 >= pspan.text_end_utf8 {
+                    pspan_index += 1;
+                    pspan = pre_spans[pspan_index];
+                }
+
+                let format = pspan.format;
+
+                let fonts = ctx.fonts.borrow();
+                let family = &fonts.font_data(format.font).dw_family;
+
+                let font_weight = DWRITE_FONT_WEIGHT(format.font_weight as i32);
+                let font_style =
+                    if format.italic { DWRITE_FONT_STYLE_ITALIC }
+                    else             { DWRITE_FONT_STYLE_NORMAL };
+
+                let face = family.GetFirstMatchingFont(font_weight, DWRITE_FONT_STRETCH_NORMAL, font_style).unwrap();
+
+                let mut font_metrics = Default::default();
+                face.GetMetrics(&mut font_metrics);
+                let font_scale = format.font_size / font_metrics.designUnitsPerEm as f32;
+                let ascent = font_scale * font_metrics.ascent as f32;
+                let drop   = font_scale * (font_metrics.descent as f32 + font_metrics.lineGap as f32);
+
                 text_spans.push(TextSpan {
                     text_begin_utf8, text_end_utf8,
                     object_index: u32::MAX,
-                    ascent: base_format.font_size, // TEMP.
-                    format: base_format,
+                    ascent, drop,
+                    format,
                     .. Default::default()
                 });
 

@@ -1,5 +1,5 @@
-use crate::win::PCWSTR;
-use crate::ctx::Ctx;
+use crate::win::*;
+use crate::ctx::*;
 
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -19,9 +19,10 @@ pub struct Fonts {
     families: Vec<FontFamilyData>,
 }
 
-struct FontFamilyData {
-    name_utf8:  String,
-    name_utf16: Vec<u16>,
+pub struct FontFamilyData {
+    pub name_utf8:  String,
+    pub name_utf16: Vec<u16>,
+    pub dw_family:  IDWriteFontFamily,
 }
 
 
@@ -46,10 +47,13 @@ impl Fonts {
         let (mut index, mut exists) = Default::default();
         unsafe { ctx.dw_system_fonts.FindFamilyName(PCWSTR(name_utf16.as_ptr()), &mut index, &mut exists).ok()? }
         if exists.as_bool() {
+            let dw_family = unsafe { ctx.dw_system_fonts.GetFontFamily(index).unwrap() };
+
             let id = self.families.len() as u32;
             self.families.push(FontFamilyData {
                 name_utf8: name.into(),
                 name_utf16,
+                dw_family,
             });
             return Some(FontFamilyId(id));
         }
@@ -59,6 +63,10 @@ impl Fonts {
 
     pub fn font_name_utf16(&self, id: FontFamilyId) -> &[u16] {
         &self.families[id.0 as usize].name_utf16
+    }
+
+    pub fn font_data(&self, id: FontFamilyId) -> &FontFamilyData {
+        &self.families[id.0 as usize]
     }
 }
 
