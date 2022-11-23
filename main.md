@@ -3,9 +3,6 @@
 
 - todo:
     - custom text layout:
-        - cursor positions:
-            - pos to text.
-            - vertical cursor movement.
         - `TextFormat::effect: usize`
             - just create separate spans for now.
             - will split `fi`, but whatever. let's keep it simple, for now.

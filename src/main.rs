@@ -85,6 +85,7 @@ struct Main {
 
     cursor: usize,
     anchor: usize,
+    preferred_x: Option<f32>,
 }
 
 impl Main {
@@ -163,9 +164,6 @@ impl Main {
         };
         text_layout.layout();
 
-        let cursor = 0;
-        let anchor = cursor;
-
         Main {
             window,
             d2d_factory,
@@ -173,7 +171,8 @@ impl Main {
             text_layout,
             rt, rt_size,
             brush,
-            cursor, anchor,
+            cursor: 0, anchor: 0,
+            preferred_x: None,
         }
     }
 
@@ -248,7 +247,7 @@ impl Main {
     }
 
     unsafe fn cursor_rect(&mut self) -> D2D_RECT_F {
-        let metrics = self.text_layout.offset_to_pos(self.cursor);
+        let metrics = self.text_layout.hit_test_offset(self.cursor);
 
         let x = metrics.x;
         let y = metrics.y;
@@ -394,10 +393,17 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             let y = high_u16(lparam.0);
             let shift_down = (GetKeyState(VK_SHIFT.0 as i32) & 0x80) != 0;
 
-            // TEMP
-            let _ = (x, y);
-            //main.cursor = main.pos_from_coord(x as f32, y as f32);
+            let hit = main.text_layout.hit_test_pos(x as f32, y as f32);
+            if hit.fraction < 0.5 {
+                main.cursor = hit.text_pos_left as usize;
+            }
+            else {
+                main.cursor = hit.text_pos_right as usize;
+            }
+
             if !shift_down { main.anchor = main.cursor }
+            main.preferred_x = None;
+
             InvalidateRect(window, None, false);
             LRESULT(0)
         },
@@ -422,7 +428,10 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                 if main.cursor > 0 {
                     // TEMP: graphemes.
                     main.cursor -= 1;
+
                     if !shift_down { main.anchor = main.cursor }
+                    main.preferred_x = None;
+
                     InvalidateRect(window, None, false);
                 }
             }
@@ -430,36 +439,45 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                 if main.cursor < main.text_layout.text().len() {
                     // TEMP: graphemes.
                     main.cursor += 1;
+
                     if !shift_down { main.anchor = main.cursor }
+                    main.preferred_x = None;
+
                     InvalidateRect(window, None, false);
                 }
             }
             else if key == VK_DOWN || key == VK_UP {
-                // TEMP
-                /*
-                let pos = main.cursor;
-                let lines = main.line_metrics();
+                let pos = main.text_layout.hit_test_offset(main.cursor);
 
-                let (line, mut line_pos) = main.line_from_pos(&lines, pos);
+                let mut line = pos.line_index;
                 if key == VK_UP {
                     if line <= 0 {
                         return LRESULT(0);
                     }
-                    line_pos -= lines[line - 1].length as usize;
+                    line -= 1;
                 }
                 else {
-                    if line >= lines.len() - 1 {
+                    if line + 1 >= main.text_layout.line_count() {
                         return LRESULT(0);
                     }
-                    line_pos += lines[line].length as usize;
+                    line += 1;
                 }
 
-                let old_x = main.coord_from_pos(pos).0;
-                let new_y = main.coord_from_pos(line_pos).1;
+                if main.preferred_x.is_none() {
+                    main.preferred_x = Some(pos.x);
+                }
+                let query_x = main.preferred_x.unwrap();
 
-                main.cursor = main.pos_from_coord(old_x, new_y);
+                let hit = main.text_layout.hit_test_line(line, query_x);
+                if hit.fraction < 0.5 {
+                    main.cursor = hit.text_pos_left as usize;
+                }
+                else {
+                    main.cursor = hit.text_pos_right as usize;
+                }
+
                 if !shift_down { main.anchor = main.cursor }
-                */
+
                 InvalidateRect(window, None, false);
             }
             else if key == VK_BACK || key == VK_DELETE {

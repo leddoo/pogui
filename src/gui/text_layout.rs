@@ -248,6 +248,10 @@ impl TextLayout {
             self.size = [max_width, height];
         }
     }
+
+    pub fn line_count(&self) -> usize {
+        self.lines.len()
+    }
 }
 
 
@@ -262,7 +266,7 @@ pub struct PosMetrics {
 impl TextLayout {
     // TODO: support RTL.
     // TODO: return info for grapheme ligature subdivision.
-    pub fn offset_to_pos(&self, offset: usize) -> PosMetrics {
+    pub fn hit_test_offset(&self, offset: usize) -> PosMetrics {
         let offset = offset.min(self.text.len()) as u32;
 
         let mut y = 0.0;
@@ -311,6 +315,128 @@ impl TextLayout {
         return PosMetrics { x: 0.0, y: 0.0, line_height: 0.0, line_index: 0 };
     }
 }
+
+
+#[derive(Clone, Copy, Debug)]
+pub struct HitMetrics {
+    pub text_pos_left:  u32,
+    pub text_pos_right: u32,
+    pub fraction: f32,
+    pub out_of_bounds: [bool; 2],
+}
+
+impl TextLayout {
+    pub fn hit_test_line(&self, line_index: usize, x: f32) -> HitMetrics {
+        let line = &self.lines[line_index];
+
+        if x < 0.0 {
+            return HitMetrics {
+                text_pos_left:  line.text_begin_utf8,
+                text_pos_right: line.text_begin_utf8,
+                fraction: 0.0,
+                out_of_bounds: [true, false],
+            };
+        }
+
+        let mut cursor = 0.0;
+        for vspan in &line.spans {
+            let tspan = &self.spans[vspan.span_index as usize];
+
+            if tspan.object_index != u32::MAX {
+                let new_cursor = cursor + tspan.width;
+                if x >= cursor && x < new_cursor {
+                    let fraction = (x - cursor) / (new_cursor - cursor);
+                    return HitMetrics {
+                        text_pos_left:  vspan.text_begin_utf8,
+                        text_pos_right: vspan.text_end_utf8,
+                        fraction,
+                        out_of_bounds: [false, false],
+                    };
+                }
+
+                cursor = new_cursor;
+                continue;
+            }
+
+            let text_begin = (vspan.text_begin_utf8 - tspan.text_begin_utf8) as usize;
+            let text_end   = (vspan.text_end_utf8   - tspan.text_begin_utf8) as usize;
+
+            let mut text_left = text_begin;
+            while text_left < text_end {
+                let glyph_begin = tspan.cluster_map[text_left];
+
+                let mut text_right = text_left;
+                while text_right < text_end
+                && tspan.cluster_map[text_right] == glyph_begin {
+                    text_right += 1;
+                }
+
+                let glyph_end = tspan.cluster_map[text_right];
+
+                let mut new_cursor = cursor;
+                for i in glyph_begin as usize .. glyph_end as usize {
+                    new_cursor += tspan.glyph_advances[i];
+                }
+
+                if x >= cursor && x < new_cursor {
+                    let fraction = (x - cursor) / (new_cursor - cursor);
+
+                    return HitMetrics {
+                        text_pos_left:  tspan.text_begin_utf8 + text_left as u32,
+                        text_pos_right: tspan.text_begin_utf8 + text_right as u32,
+                        fraction,
+                        out_of_bounds: [false, false],
+                    }
+                }
+
+                cursor = new_cursor;
+                text_left = text_right;
+            }
+        }
+
+        return HitMetrics {
+            text_pos_left:  line.text_end_utf8,
+            text_pos_right: line.text_end_utf8,
+            fraction: 0.0,
+            out_of_bounds: [true, false],
+        };
+    }
+
+    pub fn hit_test_pos(&self, x: f32, y: f32) -> HitMetrics {
+        if self.lines.len() == 0 {
+            return HitMetrics {
+                text_pos_left:  0,
+                text_pos_right: 0,
+                fraction: 0.0,
+                out_of_bounds: [true, true],
+            }
+        }
+
+        // above.
+        if y < 0.0 {
+            let mut result = self.hit_test_line(0, x);
+            result.out_of_bounds[1] = true;
+            return result;
+        }
+
+        let mut cursor = 0.0;
+        for (line_index, line) in self.lines.iter().enumerate() {
+            let new_cursor = cursor + line.height;
+
+            if y >= cursor && y < new_cursor {
+                return self.hit_test_line(line_index, x);
+            }
+
+            cursor = new_cursor;
+        }
+
+        // below.
+        let mut result = self.hit_test_line(self.lines.len() - 1, x);
+        result.out_of_bounds[1] = true;
+        return result;
+    }
+}
+
 
 impl TextLayout {
     pub fn draw(&self, pos: [f32; 2], rt: &ID2D1RenderTarget, brush: &ID2D1Brush) {
@@ -975,6 +1101,7 @@ impl TextLayoutBuilder {
                             cursor += utf16_len(cp);
                         }
                         assert_eq!(map.len(), text_utf8_len as usize);
+                        map.push(glyph_indices.len() as u16);
 
                         map
                     };
