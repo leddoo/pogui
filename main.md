@@ -3,14 +3,13 @@
 
 - todo:
     - custom text layout:
-        - line breaking.
-            - object positioning.
-                - thinking: set x during layout. compute y ad-hoc from line_index.
-            - detect re-shape wrapping.
         - cursor positions:
             - pos to text.
             - vertical cursor movement.
         - `TextFormat::effect: usize`
+            - just create separate spans for now.
+            - will split `fi`, but whatever. let's keep it simple, for now.
+        - renderer callback thing.
     - project structure: library & examples.
     - more style:
         - classes.
@@ -20,6 +19,8 @@
 
 - backlog:
     - text layout:
+        - reshape word wrapping.
+        - character wrapping.
         - text alignment.
         - color font.
         - ligature cursor positions.

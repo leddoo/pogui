@@ -119,11 +119,15 @@ pub struct TextLayout {
     ctx: Ctx,
     text: Vec<u8>,
     objects: Vec<Object>,
+
     spans: Vec<TextSpan>,
     hard_lines: Vec<u32>, // end indices in spans array.
-    lines: Vec<VisualLine>,
     break_options: Vec<u32>, // bit vector.
+
     layout_params: LayoutParams,
+
+    lines: Vec<VisualLine>,
+    size: [f32; 2],
 }
 
 impl TextLayout {
@@ -164,8 +168,8 @@ impl TextLayout {
         }
 
 
+        // break lines.
         let mut lines = vec![];
-
         let mut hard_lines_span_cursor = 0;
         for spans_end in &self.hard_lines {
             let spans_begin = hard_lines_span_cursor;
@@ -217,8 +221,32 @@ impl TextLayout {
                 lb.finalize(self, &mut lines);
             }
         }
-
         self.lines = lines;
+
+        // update object positions & layout metrics.
+        {
+            let mut max_width = 0.0f32;
+            let mut height = 0.0;
+
+            for line in &self.lines {
+                let mut x = 0.0;
+                let y = height + line.baseline;
+
+                for span in &line.spans {
+                    let object_index = self.spans[span.span_index as usize].object_index;
+                    if object_index != u32::MAX {
+                        self.objects[object_index as usize].pos = [x, y];
+                    }
+
+                    x += span.width;
+                }
+
+                max_width = max_width.max(x);
+                height += line.height;
+            }
+
+            self.size = [max_width, height];
+        }
     }
 }
 
@@ -286,6 +314,15 @@ impl TextLayout {
 
 impl TextLayout {
     pub fn draw(&self, pos: [f32; 2], rt: &ID2D1RenderTarget, brush: &ID2D1Brush) {
+        // TEMP
+        let rect = D2D_RECT_F {
+            left:   pos[0],
+            top:    pos[1],
+            right:  pos[0] + self.size[0],
+            bottom: pos[1] + self.size[1],
+        };
+        unsafe { rt.DrawRectangle(&rect, brush, 1.0, None) };
+
         let mut cursor = pos[1];
         for line in &self.lines {
             // TEMP
@@ -587,6 +624,7 @@ impl TextLayoutBuilder {
                 lines: vec![],
                 break_options: vec![],
                 layout_params: Default::default(),
+                size: [0.0; 2],
             };
         }
         self.flush_format();
@@ -679,8 +717,8 @@ impl TextLayoutBuilder {
                 let text_begin_utf8 = utf16_to_utf8[line_begin as usize];
                 let text_end_utf8   = text_begin_utf8;
 
-                let pos_utf8 = utf16_to_utf8[text_begin_utf8 as usize];
-                while pos_utf8 >= pspan.text_end_utf8 {
+                let pos_utf8 = text_begin_utf8;
+                while pos_utf8 >= pspan.text_end_utf8 && pspan_index + 1 < pre_spans.len() {
                     pspan_index += 1;
                     pspan = pre_spans[pspan_index];
                 }
@@ -971,6 +1009,7 @@ impl TextLayoutBuilder {
             lines: vec![],
             break_options,
             layout_params: Default::default(),
+            size: [0.0; 2],
         };
     }}
 }
