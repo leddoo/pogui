@@ -5,13 +5,13 @@
     - custom text layout:
         - line breaking.
             - empty lines.
+                - font family object on font context.
+                    - then query font face for line height.
                 - default line height.
-                - fix trailing line.
             - object positioning.
                 - thinking: set x during layout. compute y ad-hoc from line_index.
             - detect re-shape wrapping.
         - cursor positions:
-            - fix crash.
             - pos to text.
             - vertical cursor movement.
         - `TextFormat::effect: usize`

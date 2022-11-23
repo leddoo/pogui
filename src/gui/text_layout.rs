@@ -176,32 +176,46 @@ impl TextLayout {
             let text_begin_utf8 = self.spans[spans_begin].text_begin_utf8;
             let text_end_utf8   = self.spans[spans_end - 1].text_end_utf8;
 
-            let mut lb = LineBreaker {
-                breaks: BreakIter {
-                    at: text_begin_utf8,
-                    end: text_end_utf8,
-                },
-                prev_break: 0,
-                text_begin: text_begin_utf8,
-                span_begin: spans_begin,
-                cluster_begin: 0,
-                segment: BreakSegment {
-                    text_cursor: text_begin_utf8,
-                    span_cursor: spans_begin,
-                    cluster_cursor: 0,
-                    line_width: 0.0, span_width: 0.0, width: 0.0,
-                },
-            };
-
-            while let Some(seg) = lb.next_segment(self) {
-                if seg.line_width > max_width {
-                    lb.start_new_line(self, seg, &mut lines);
-                }
-                else {
-                    lb.add_to_line(seg);
-                }
+            // empty line.
+            if text_begin_utf8 == text_end_utf8 {
+                // TODO: query actual line height & base line for current font.
+                lines.push(VisualLine {
+                    text_begin_utf8,
+                    text_end_utf8,
+                    spans: vec![],
+                    width: 0.0,
+                    height: 69.0,
+                    baseline: 5.0,
+                });
             }
-            lb.finalize(self, &mut lines);
+            else {
+                let mut lb = LineBreaker {
+                    breaks: BreakIter {
+                        at: text_begin_utf8,
+                        end: text_end_utf8,
+                    },
+                    prev_break: text_begin_utf8,
+                    text_begin: text_begin_utf8,
+                    span_begin: spans_begin,
+                    cluster_begin: 0,
+                    segment: BreakSegment {
+                        text_cursor: text_begin_utf8,
+                        span_cursor: spans_begin,
+                        cluster_cursor: 0,
+                        line_width: 0.0, span_width: 0.0, width: 0.0,
+                    },
+                };
+
+                while let Some(seg) = lb.next_segment(self) {
+                    if seg.line_width > max_width {
+                        lb.start_new_line(self, seg, &mut lines);
+                    }
+                    else {
+                        lb.add_to_line(seg);
+                    }
+                }
+                lb.finalize(self, &mut lines);
+            }
         }
 
         self.lines = lines;
@@ -634,6 +648,16 @@ impl TextLayoutBuilder {
 
         let mut breaks = dw_breaks.borrow_mut();
         let breaks = &mut *breaks;
+
+        // need a hard break at the end of the text to make sure the last line
+        // of text isn't ignored.
+        // note, this break isn't inserted by the break analyzer, as it inserts
+        // hard breaks on the "after" condition, and there's no character at
+        // text16.len().
+        // note, if the last character in the text is a hard break, this
+        // additional break will cause an empty line to be inserted at the end
+        // of the text.  this is the desired behavior, as this empty line is the
+        // cursor position after that last line break character.
         breaks.lines.push(text16.len() as u32);
 
         let mut pspan_index = 0;
@@ -1144,14 +1168,26 @@ impl LineBreaker {
             span_width  = 0.0;
             seg_width  += width;
 
+            // this isn't technically correct for the last span
+            // on a line, because the hard break is excluded.
+            // meaning the next span's begin != span.end
+            // but it doesn't matter, as in this case,
+            // next_break = line.end = span.end, so the loop exits
+            // and the "partial span" case isn't run either.
             text_cursor    = span.text_end_utf8;
             span_cursor   += 1;
             cluster_cursor = 0;
         }
 
-        // TODO: is this actually correct for inline objects?
-        let span = &tl.spans[span_cursor];
-        if text_cursor < next_break && span.object_index == u32::MAX {
+        // partial span. (i.e. the break is inside a span)
+        if text_cursor < next_break {
+            // NOTE: can't have a break inside an inline object.
+            // (because it's just a single null byte.)
+            // either the break is before or after -> handled by the
+            // "skip full spans" code.
+
+            let span = &tl.spans[span_cursor];
+
             let break_rel = next_break - span.text_begin_utf8;
             let cluster_end = span.cluster_map[break_rel as usize] as u32;
 

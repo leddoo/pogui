@@ -158,7 +158,7 @@ impl Main {
             b.set_bold(false);
             b.add_line(" العربية 中国");
 
-            b.add_line("😀🧱");
+            b.add_string("😀🧱");
             b.build()
         };
         text_layout.layout();
