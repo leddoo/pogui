@@ -249,8 +249,14 @@ impl TextLayout {
         }
     }
 
+    #[inline]
     pub fn line_count(&self) -> usize {
         self.lines.len()
+    }
+
+    #[inline]
+    pub fn actual_size(&self) -> [f32; 2] {
+        self.size
     }
 }
 
@@ -689,6 +695,10 @@ impl TextLayoutBuilder {
             format_begin: 0,
             pre_spans: vec![],
         }
+    }
+
+    pub fn text(&self) -> &str {
+        unsafe { core::str::from_utf8_unchecked(&self.text) }
     }
 
     fn flush_format_ex(&mut self, object_index: u32) {

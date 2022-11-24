@@ -1,16 +1,60 @@
 - focus:
-    - text layout.
+    - classic counter.
+        - styling is important, but core functionality is more important.
+        - button element.
+        - focus, hover, tab navigation.
+        - interactivity.
 
-- todo:
-    - project structure: library & examples.
+- present:
+    - ligature breaking coloring.
+        - `TextFormat::effect`.
+        - encode color in effect for now.
+    - revise layout algorithm.
+        - make it more concrete.
+        - when is max_width used?
+        - there's something like "sized".
+            - if layout box is tight, element is sized.
+            - for lines layout, if width is sized, passes down.
+              else, is fit content (or if explicit).
+            - well, no layout can only observe whether it is sized.
+            - lines layout only sizes children in x.
+              even if height is sized, cause there are no reasonable constraints.
+    - project clean up.
+        - `ctx`
+        - `text::{layout, fonts}`
+        - `element`
+        - `layout`
+    - button element.
+        - children for content.
+        - only render it for now.
+        - behaves exactly like a div (layout wise)
+          with some platform dependent (default) styling.
+          and interactivity, of course.
+          but only some child types allowed, no buttons in buttons.
+    - focus, hover, tab navigation.
+        - which elements can be focused/hovered?
+            - what properties does a div need to act like a button?
+        - how does disabling work?
+        - which elements does tab navigation consider?
+    - interactivity.
+        - callbacks. in some language agnostic way.
+        - tree mutation.
+
+- horizon:
     - more style:
         - classes.
         - rules.
         - structured repr.
+    - project structure: library & examples.
 
 
 - backlog:
     - text layout:
+        - automatic, lazy layout.
+        - `TextFormat::effect`?
+            - seems useful to put ligature handling into the text layout.
+            - or maybe not? `hit_test_pos` doesn't either.
+            - `effect` still seems useful. can be used for user defined, ligature breaking styling.
         - `offset` for all position returning hit tests?
         - reshape word wrapping.
         - character wrapping.

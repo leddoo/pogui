@@ -62,7 +62,7 @@ use gui::text_layout::*;
 
 
 fn main() {
-    if 1==1 {
+    if 0==1 {
         unsafe { _main() }
     }
     else {

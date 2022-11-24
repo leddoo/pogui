@@ -120,7 +120,7 @@ type Style = HashMap<String, String>;
 struct Element {
     kind: ElementKind,
 
-    ctx: Rc<Ctx>,
+    ctx: Ctx,
 
     this:         Option<ElementRef>,
     parent:       Option<ElementRef>,
@@ -178,13 +178,13 @@ impl ElementRef {
 
 enum RenderElement {
     Element { ptr: ElementRef },
-    Text  { pos: [f32; 2], layout: IDWriteTextLayout },
+    Text  { pos: [f32; 2], layout: TextLayout },
 }
 
 
 
 impl Element {
-    fn new(kind: ElementKind, ctx: Rc<Ctx>) -> Element {
+    fn new(kind: ElementKind, ctx: Ctx) -> Element {
         Element {
             kind, ctx,
             this: None,
@@ -237,22 +237,85 @@ impl Element {
     }
 
     fn render_children(&mut self, rt: &ID2D1RenderTarget) {
+        struct ChildRenderer<'a> {
+            ctx: Ctx,
+            children: &'a mut Vec<RenderElement>,
+            builder: TextLayoutBuilder,
+        }
+
+        impl<'a> ChildRenderer<'a> {
+            fn flush(&mut self) {
+                let mut new_builder = TextLayoutBuilder::new(self.ctx, self.builder.base_format());
+                new_builder.set_format(self.builder.current_format());
+
+                let builder = core::mem::replace(&mut self.builder, new_builder);
+                if builder.text().len() > 0 {
+                    let layout  = builder.build();
+                    self.children.push(RenderElement::Text { pos: [0.0; 2], layout });
+                }
+            }
+
+            fn with_style<F: FnOnce(&mut Self)>(&mut self, style: &Style, f: F) {
+                let old_format = self.builder.current_format();
+
+                let color =
+                    style.get("text_color")
+                    .map(|color| {
+                        assert!(color.len() == 6);
+                        u32::from_str_radix(color, 16).unwrap()
+                    })
+                    .unwrap_or(0x000000);
+                // TODO: store in effect.
+
+                f(self);
+
+                self.builder.set_format(old_format);
+            }
+
+            fn visit(&mut self, el: &ElementRef) {
+                let e = el.borrow();
+                match e.kind {
+                    ElementKind::Div => {
+                        self.flush();
+                        self.children.push(RenderElement::Element { ptr: el.clone() });
+                    }
+
+                    ElementKind::Span => {
+                        self.with_style(&e.style, |this| {
+                            Element::visit_children(&e.first_child, |child| {
+                                this.visit(child);
+                            });
+                        })
+                    }
+
+                    ElementKind::Text => {
+                        self.builder.add_string(&e.text);
+                    }
+                }
+            }
+        }
+
         self.render_children.clear();
 
-        let mut ren = ChildRenderer {
-            ctx: &self.ctx, rt,
-            render_children: &mut self.render_children,
-            text: vec![],
-            text_prev_style_end: 0,
-            text_styles: vec![],
-            current_style: 0,
-            styles: vec![self.computed_style.clone()],
+        let format = TextFormat {
+            font: self.ctx.font_query("Roboto").unwrap(),
+            font_size: 24.0,
+            ..Default::default()
+        };
+
+        let mut cr = ChildRenderer {
+            ctx: self.ctx,
+            children: &mut self.render_children,
+            builder: TextLayoutBuilder::new(self.ctx, format),
         };
 
         Self::visit_children(&self.first_child, |child|
-            ren.visit(child));
-        ren.flush();
+            cr.visit(child));
+        cr.flush();
 
+        // TODO: button is an inline element, but also has children.
+        // thinking just recurse and have child decide if it needs to do something.
+        // hopefully it can decide that locally?
         for child in &mut self.render_children {
             if let RenderElement::Element { ptr } = child {
                 ptr.borrow_mut().render_children(rt);
@@ -279,15 +342,8 @@ impl Element {
                         }
 
                         RenderElement::Text { pos: _, layout } => {
-                            let width = unsafe {
-                                // yeah, whatever, this will all change.
-                                let old_box_width = layout.GetMaxWidth();
-                                layout.SetMaxWidth(f32::INFINITY).unwrap();
-                                let width = layout.GetMetrics().unwrap().width;
-                                layout.SetMaxWidth(old_box_width).unwrap();
-                                width
-                            };
-                            max_width = max_width.max(width);
+                            // TODO.
+                            unimplemented!();
                         }
                     }
                 }
@@ -323,11 +379,8 @@ impl Element {
                                 }
 
                                 RenderElement::Text { pos: _, layout } => {
-                                    let width = unsafe {
-                                        layout.SetMaxWidth(f32::INFINITY).unwrap();
-                                        layout.GetMetrics().unwrap().width
-                                    };
-                                    max_width = max_width.max(width);
+                                    // TODO.
+                                    unimplemented!();
                                 }
                             }
                         }
@@ -408,10 +461,9 @@ impl Element {
                         }
 
                         RenderElement::Text { pos, layout } => {
-                            let height = unsafe {
-                                layout.SetMaxWidth(this_width).unwrap();
-                                layout.GetMetrics().unwrap().height
-                            };
+                            layout.set_layout_width(this_width);
+                            layout.layout();
+                            let height = layout.actual_size()[1];
                             *pos = [0.0, cursor];
                             cursor += height;
                         }
@@ -464,12 +516,60 @@ impl Element {
                 }
 
                 RenderElement::Text { pos, layout } => {
-                    let pos = D2D_POINT_2F { x: pos[0], y: pos[1] };
-                    let color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-                    unsafe {
-                        let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
-                        rt.DrawTextLayout(pos, &*layout, &brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+                    struct D2dTextRenderer<'a> {
+                        rt:    &'a ID2D1RenderTarget,
+                        brush: &'a ID2D1Brush,
                     }
+
+                    impl<'a> TextRenderer for D2dTextRenderer<'a> {
+                        fn glyphs(&self, data: &DrawGlyphs) {
+                            let run = DWRITE_GLYPH_RUN {
+                                fontFace: Some(data.font_face.clone()),
+                                fontEmSize: data.format.font_size,
+                                glyphCount: data.indices.len() as u32,
+                                glyphIndices: data.indices.as_ptr(),
+                                glyphAdvances: data.advances.as_ptr(),
+                                glyphOffsets: data.offsets.as_ptr() as *const _,
+                                isSideways: false.into(),
+                                bidiLevel: data.is_rtl as u32,
+                            };
+
+                            let pos = D2D_POINT_2F {
+                                x: data.pos[0],
+                                y: data.pos[1],
+                            };
+                            unsafe { self.rt.DrawGlyphRun(pos, &run, self.brush, Default::default()) };
+                        }
+
+                        fn line(&self, data: &DrawLine, _kind: DrawLineKind) {
+                            let rect = D2D_RECT_F {
+                                left:   data.x0,
+                                top:    data.y - data.thickness/2.0,
+                                right:  data.x1,
+                                bottom: data.y + data.thickness/2.0,
+                            };
+                            unsafe { self.rt.FillRectangle(&rect, self.brush) };
+                        }
+
+                        fn object(&self, data: &DrawObject) {
+                            let rect = D2D_RECT_F {
+                                left:   data.pos[0],
+                                top:    data.pos[1] - data.baseline,
+                                right:  data.pos[0] + data.size[0],
+                                bottom: data.pos[1] + data.size[1] - data.baseline,
+                            };
+                            unsafe { self.rt.FillRectangle(&rect, self.brush) };
+                        }
+                    }
+
+                    let color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+                    let brush = unsafe { rt.CreateSolidColorBrush(&color, None).unwrap() };
+
+                    let r = D2dTextRenderer {
+                        rt: rt.into(),
+                        brush: (&brush).into(),
+                    };
+                    layout.draw(*pos, &r);
                 }
             }
         }
@@ -481,140 +581,8 @@ impl Element {
 }
 
 
-struct ChildRenderer<'a> {
-    ctx: &'a Ctx,
-    rt: &'a ID2D1RenderTarget,
-    render_children: &'a mut Vec<RenderElement>,
-    text: Vec<u16>,
-    text_prev_style_end: usize,
-    text_styles: Vec<(usize, usize,  usize)>,
-    current_style: usize,
-    styles: Vec<Style>,
-}
-
-impl<'a> ChildRenderer<'a> {
-    fn flush(&mut self) {
-        if self.text.len() == 0 {
-            return;
-        }
-
-        self.text_styles.push((self.text_prev_style_end, self.text.len(),  self.current_style));
-
-
-        let layout = unsafe {
-            let layout = self.ctx.dw_factory.CreateTextLayout(
-                &self.text, 
-                &self.ctx.text_format, 
-                f32::INFINITY, f32::INFINITY).unwrap();
-
-            for (begin, end,  style_idx) in self.text_styles.iter().cloned() {
-                let style = &self.styles[style_idx];
-
-                let color =
-                    style.get("text_color")
-                    .map(|color| {
-                        assert!(color.len() == 6);
-                        let hex = u32::from_str_radix(color, 16).unwrap();
-                        let r = ((hex >> 16) & 0xff) as f32 / 255.0;
-                        let g = ((hex >>  8) & 0xff) as f32 / 255.0;
-                        let b = ((hex      ) & 0xff) as f32 / 255.0;
-                        (r, g, b)
-                    })
-                    .unwrap_or((0.0, 0.0, 0.0));
-
-                let color = D2D1_COLOR_F {
-                    r: color.0,
-                    g: color.1,
-                    b: color.2,
-                    a: 1.0
-                };
-
-                let brush = self.rt.CreateSolidColorBrush(&color, None).unwrap();
-
-                let range = DWRITE_TEXT_RANGE {
-                    startPosition: begin as u32,
-                    length: (end - begin) as u32,
-                };
-
-                // this doesn't technically need to happen here.
-                layout.SetDrawingEffect(&brush, range).unwrap();
-            }
-
-            layout
-        };
-        self.render_children.push(RenderElement::Text { pos: [0.0, 0.0], layout });
-        self.text.clear();
-        self.text_prev_style_end = 0;
-        self.text_styles.clear();
-    }
-
-    fn set_style(&mut self, index: usize) {
-        self.text_styles.push((self.text_prev_style_end, self.text.len(),  self.current_style));
-        self.text_prev_style_end = self.text.len();
-        self.current_style = index;
-    }
-
-    fn visit(&mut self, child: &ElementRef) {
-        let child_el = child.borrow();
-        match child_el.kind {
-            ElementKind::Div => {
-                // only support block divs for now.
-                // don't know how to do inline objects.
-                self.flush();
-                self.render_children.push(RenderElement::Element { ptr: child.clone() });
-            }
-
-            ElementKind::Span => {
-                let prev_style = self.current_style;
-
-                let style_idx = self.styles.len();
-                self.styles.push(child_el.computed_style.clone());
-                self.set_style(style_idx);
-
-                Element::visit_children(&child_el.first_child, |span_child| {
-                    self.visit(span_child);
-                });
-
-                self.set_style(prev_style);
-            }
-
-            ElementKind::Text => {
-                let utf16 = child_el.text.encode_utf16();
-                self.text.extend(utf16);
-            }
-        }
-    }
-}
-
-
-
-
-struct Ctx {
-    dw_factory: IDWriteFactory2,
-    text_format: IDWriteTextFormat,
-}
-
-struct RcCtx (Rc<Ctx>);
-
-impl RcCtx {
-    fn new() -> RcCtx {
-        unsafe {
-            let dw_factory: IDWriteFactory2 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap();
-
-            let text_format = dw_factory.CreateTextFormat(
-                w!("Roboto"),
-                None,
-                DWRITE_FONT_WEIGHT_REGULAR,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                24.0,
-                w!("en-us")).unwrap();
-
-            RcCtx(Rc::new(Ctx { dw_factory, text_format }))
-        }
-    }
-
-    fn to_ref(&self, element: Element, children: Vec<ElementRef>) -> ElementRef {
+impl Ctx {
+    fn to_ref(self, element: Element, children: Vec<ElementRef>) -> ElementRef {
         let this = ElementRef(Rc::new(RefCell::new(element)));
 
         let mut first_child = None;
@@ -647,21 +615,20 @@ impl RcCtx {
         this
     }
 
-    fn div(&self, children: Vec<ElementRef>) -> ElementRef {
-        self.to_ref(Element::new(ElementKind::Div, self.0.clone()), children)
+    fn div(self, children: Vec<ElementRef>) -> ElementRef {
+        self.to_ref(Element::new(ElementKind::Div, self), children)
     }
 
-    fn span(&self, children: Vec<ElementRef>) -> ElementRef {
-        self.to_ref(Element::new(ElementKind::Span, self.0.clone()), children)
+    fn span(self, children: Vec<ElementRef>) -> ElementRef {
+        self.to_ref(Element::new(ElementKind::Span, self), children)
     }
 
-    fn text<Str: Into<String>>(&self, value: Str) -> ElementRef {
-        let mut result = Element::new(ElementKind::Text, self.0.clone());
+    fn text<Str: Into<String>>(self, value: Str) -> ElementRef {
+        let mut result = Element::new(ElementKind::Text, self);
         result.text = value.into();
         self.to_ref(result, vec![])
     }
 }
-
 
 
 #[allow(dead_code)]
@@ -699,6 +666,15 @@ impl Main {
                 ..Default::default()
             }).unwrap();
 
+        // TEMP
+        {
+            let t0 = std::time::Instant::now();
+            let mut root = root.borrow_mut();
+            root.style(&Default::default());
+            root.render_children((&rt).into());
+            println!("styling took {:?}", t0.elapsed());
+        }
+
         Main {
             window,
             d2d_factory,
@@ -729,14 +705,10 @@ impl Main {
 
             let t0 = std::time::Instant::now();
 
-            root.style(&Default::default());
-
-            root.render_children((&self.rt).into());
-
             root.layout(LayoutBox::tight([size[0] as f32 / 2.0, size[1] as f32]));
             root.pos = [0.0, 0.0];
 
-            println!("styling & layout took {:?}", t0.elapsed());
+            println!("layout took {:?}", t0.elapsed());
 
             self.rt.BeginDraw();
 
@@ -750,7 +722,7 @@ impl Main {
 }
 
 pub fn main() {
-    let ctx = RcCtx::new();
+    let ctx = Ctx::new();
 
     let root =
         ctx.div(vec![
