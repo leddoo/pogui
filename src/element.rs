@@ -12,6 +12,7 @@ pub enum ElementKind {
     Div,
     Span,
     Text,
+    Button,
 }
 
 
@@ -108,6 +109,8 @@ impl Element {
 
 
 
+// STYLE
+
 impl Element {
     pub fn style(&mut self, parent: &Style) {
         fn is_inherited_style(name: &str) -> bool {
@@ -175,11 +178,12 @@ impl Element {
             }
 
             fn visit(&mut self, el: &ElementRef) {
-                let e = el.borrow();
+                let mut e = el.borrow_mut();
                 match e.kind {
                     ElementKind::Div => {
                         self.flush();
                         self.children.push(RenderElement::Element { ptr: el.clone() });
+                        e.render_children();
                     }
 
                     ElementKind::Span => {
@@ -192,6 +196,12 @@ impl Element {
 
                     ElementKind::Text => {
                         self.builder.add_string(&e.text);
+                    }
+
+                    ElementKind::Button => {
+                        self.flush();
+                        self.children.push(RenderElement::Element { ptr: el.clone() });
+                        e.render_children();
                     }
                 }
             }
@@ -216,17 +226,14 @@ impl Element {
                 cr.visit(child));
         });
         cr.flush();
-
-        // TODO: button is an inline element, but also has children.
-        // thinking just recurse and have child decide if it needs to do something.
-        // hopefully it can decide that locally?
-        for child in &mut self.render_children {
-            if let RenderElement::Element { ptr } = child {
-                ptr.borrow_mut().render_children();
-            }
-        }
     }
+}
 
+
+
+// LAYOUT
+
+impl Element {
     pub fn max_width(&mut self) -> f32 {
         assert!(self.kind == ElementKind::Div);
 
@@ -263,7 +270,8 @@ impl Element {
     }
 
     pub fn layout(&mut self, lbox: LayoutBox) {
-        assert!(self.kind == ElementKind::Div);
+        assert!(self.kind == ElementKind::Div
+            || self.kind == ElementKind::Button);
 
         let layout = Layout::Lines;
         match layout {
@@ -379,9 +387,31 @@ impl Element {
             }
         }
     }
+}
 
+
+
+// PAINT
+
+impl Element {
     pub fn paint(&mut self, rt: &ID2D1RenderTarget) {
-        assert!(self.kind == ElementKind::Div);
+        assert!(self.kind == ElementKind::Div
+            || self.kind == ElementKind::Button);
+
+        if self.kind == ElementKind::Button {
+            unsafe {
+                let color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+                let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
+
+                let rect = D2D_RECT_F {
+                    left:   self.pos[0].round(),
+                    top:    self.pos[1].round(),
+                    right:  (self.pos[0] + self.size[0]).round(),
+                    bottom: (self.pos[1] + self.size[1]).round(),
+                };
+                rt.DrawRectangle(&rect, &brush, 2.0, None);
+            }
+        }
 
         if let Some(color) = self.computed_style.get("background_color") {
             assert!(color.len() == 6);
@@ -542,6 +572,10 @@ impl Ctx {
         let mut result = Element::new(ElementKind::Text, self);
         result.text = value.into();
         self.to_ref(result, vec![])
+    }
+
+    pub fn button(self, children: Vec<ElementRef>) -> ElementRef {
+        self.to_ref(Element::new(ElementKind::Button, self), children)
     }
 }
 

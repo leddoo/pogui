@@ -6,23 +6,9 @@
         - interactivity.
 
 - present:
-    - revise layout algorithm.
-        - make it more concrete.
-        - when is max_width used?
-        - there's something like "sized".
-            - if layout box is tight, element is sized.
-            - for lines layout, if width is sized, passes down.
-              else, is fit content (or if explicit).
-            - well, no layout can only observe whether it is sized.
-            - lines layout only sizes children in x.
-              even if height is sized, cause there are no reasonable constraints.
-    - button element.
-        - children for content.
-        - only render it for now.
-        - behaves exactly like a div (layout wise)
-          with some platform dependent (default) styling.
-          and interactivity, of course.
-          but only some child types allowed, no buttons in buttons.
+    - inline vs block elements.
+        - thinking `Display := None | Block | Inline`
+        - & `is_container(kind)`
     - focus, hover, tab navigation.
         - which elements can be focused/hovered?
             - what properties does a div need to act like a button?

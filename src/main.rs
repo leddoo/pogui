@@ -149,6 +149,10 @@ pub fn main() {
                 ("background_color".into(), "eeeeff".into()),
                 ("min_height".into(), "250".into()),
             ].into()),
+            ctx.div(vec![
+                ctx.text("count: 0"),
+                ctx.button(vec![ctx.text("increment")]),
+            ]),
         ]);
 
     unsafe {
