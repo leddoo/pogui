@@ -14,6 +14,7 @@ pub struct TextFormat {
     pub italic:        bool,
     pub underline:     bool,
     pub strikethrough: bool,
+    pub effect:        usize,
 }
 
 impl Default for TextFormat {
@@ -25,6 +26,7 @@ impl Default for TextFormat {
             italic:        false,
             underline:     false,
             strikethrough: false,
+            effect:        0,
         }
     }
 }
@@ -841,6 +843,13 @@ impl TextLayoutBuilder {
         if strikethrough != self.format.strikethrough {
             self.flush_format();
             self.format.strikethrough = strikethrough;
+        }
+    }
+
+    pub fn set_effect(&mut self, effect: usize) {
+        if effect != self.format.effect {
+            self.flush_format();
+            self.format.effect = effect;
         }
     }
 

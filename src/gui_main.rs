@@ -265,7 +265,7 @@ impl Element {
                         u32::from_str_radix(color, 16).unwrap()
                     })
                     .unwrap_or(0x000000);
-                // TODO: store in effect.
+                self.builder.set_effect(color as usize);
 
                 f(self);
 
@@ -281,7 +281,7 @@ impl Element {
                     }
 
                     ElementKind::Span => {
-                        self.with_style(&e.style, |this| {
+                        self.with_style(&e.computed_style, |this| {
                             Element::visit_children(&e.first_child, |child| {
                                 this.visit(child);
                             });
@@ -309,8 +309,10 @@ impl Element {
             builder: TextLayoutBuilder::new(self.ctx, format),
         };
 
-        Self::visit_children(&self.first_child, |child|
-            cr.visit(child));
+        cr.with_style(&self.computed_style, |cr| {
+            Self::visit_children(&self.first_child, |child|
+                cr.visit(child));
+        });
         cr.flush();
 
         // TODO: button is an inline element, but also has children.
@@ -518,7 +520,7 @@ impl Element {
                 RenderElement::Text { pos, layout } => {
                     struct D2dTextRenderer<'a> {
                         rt:    &'a ID2D1RenderTarget,
-                        brush: &'a ID2D1Brush,
+                        brush: &'a ID2D1SolidColorBrush,
                     }
 
                     impl<'a> TextRenderer for D2dTextRenderer<'a> {
@@ -533,6 +535,15 @@ impl Element {
                                 isSideways: false.into(),
                                 bidiLevel: data.is_rtl as u32,
                             };
+
+                            let color = data.format.effect as u32;
+                            let color = D2D1_COLOR_F {
+                                r: ((color >> 16) & 0xff) as f32 / 255.0,
+                                g: ((color >>  8) & 0xff) as f32 / 255.0,
+                                b: ((color >>  0) & 0xff) as f32 / 255.0,
+                                a: 1.0,
+                            };
+                            unsafe { self.brush.SetColor(&color) };
 
                             let pos = D2D_POINT_2F {
                                 x: data.pos[0],
@@ -567,7 +578,7 @@ impl Element {
 
                     let r = D2dTextRenderer {
                         rt: rt.into(),
-                        brush: (&brush).into(),
+                        brush: &brush,
                     };
                     layout.draw(*pos, &r);
                 }

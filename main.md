@@ -6,9 +6,6 @@
         - interactivity.
 
 - present:
-    - ligature breaking coloring.
-        - `TextFormat::effect`.
-        - encode color in effect for now.
     - revise layout algorithm.
         - make it more concrete.
         - when is max_width used?
