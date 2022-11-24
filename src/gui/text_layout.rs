@@ -438,6 +438,96 @@ impl TextLayout {
 }
 
 
+#[derive(Clone, Copy, Debug)]
+pub struct RangeMetrics {
+    pub text_begin: u32,
+    pub text_end:   u32,
+
+    pub pos:  [f32; 2],
+    pub size: [f32; 2],
+
+    pub is_rtl:  bool,
+    pub is_text: bool,
+}
+
+impl TextLayout {
+    pub fn hit_test_range<F: FnMut(&RangeMetrics)>(&self, begin: usize, end: usize, mut f: F) {
+        assert!(begin <= end);
+        assert!(end   <= self.text.len());
+        if begin == end {
+            return;
+        }
+
+        let rng_begin = begin as u32;
+        let rng_end   = end   as u32;
+
+        let mut y = 0.0;
+        for line in &self.lines {
+            if rng_begin >= line.text_end_utf8 || rng_end <= line.text_begin_utf8 {
+                y += line.height;
+                continue;
+            }
+
+            let mut x = 0.0;
+            for vspan in &line.spans {
+                if rng_begin >= vspan.text_end_utf8 || rng_end <= vspan.text_begin_utf8 {
+                    x += vspan.width;
+                    continue;
+                }
+
+                let tspan = &self.spans[vspan.span_index as usize];
+
+                let text_begin = rng_begin.max(vspan.text_begin_utf8);
+                let text_end   = rng_end  .min(vspan.text_end_utf8);
+
+                if tspan.object_index != u32::MAX {
+                    f(&RangeMetrics {
+                        text_begin,
+                        text_end,
+                        pos:     [x, y],
+                        size:    [tspan.width, line.height],
+                        is_rtl:  false,
+                        is_text: false,
+                    });
+                }
+                else {
+                    let rel_begin = text_begin - tspan.text_begin_utf8;
+                    let rel_end   = text_end   - tspan.text_begin_utf8;
+
+                    let glyph_zero  = vspan.glyph_begin as usize;
+                    let glyph_begin = tspan.cluster_map[rel_begin as usize] as usize;
+                    let glyph_end   = tspan.cluster_map[rel_end   as usize] as usize;
+
+                    let mut x0 = x;
+                    for i in glyph_zero..glyph_begin {
+                        x0 += tspan.glyph_advances[i];
+                    }
+
+                    let mut x1 = x0;
+                    for i in glyph_begin..glyph_end {
+                        x1 += tspan.glyph_advances[i];
+                    }
+
+                    f(&RangeMetrics {
+                        text_begin, text_end,
+                        pos:     [x0, y],
+                        size:    [x1 - x0, line.height],
+                        is_rtl:  tspan.is_rtl,
+                        is_text: true,
+                    });
+                }
+
+                x += vspan.width;
+            }
+
+            // TODO: return a rect for the \n, if selected.
+
+            y += line.height;
+        }
+    }
+}
+
+
 pub struct DrawGlyphs<'a> {
     pub pos: [f32; 2],
 
@@ -481,10 +571,10 @@ pub trait TextRenderer {
 }
 
 impl TextLayout {
-    pub fn draw<Renderer: TextRenderer>(&self, pos: [f32; 2], renderer: &Renderer) {
-        let mut cursor = pos[1];
+    pub fn draw<Renderer: TextRenderer>(&self, offset: [f32; 2], renderer: &Renderer) {
+        let mut cursor = offset[1];
         for line in &self.lines {
-            let mut x = pos[0];
+            let mut x = offset[0];
             for vspan in &line.spans {
                 let tspan = &self.spans[vspan.span_index as usize];
 

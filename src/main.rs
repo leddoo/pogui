@@ -249,45 +249,30 @@ impl Main {
             rt:    &self.rt,
             brush: &self.brush,
         };
-        self.text_layout.draw([rect.left as f32, rect.top as f32], &renderer);
+        self.text_layout.draw([0.0, 0.0], &renderer);
 
         // selection
-        // TEMP
-        /*
         if self.anchor != self.cursor {
             let begin = self.anchor.min(self.cursor);
             let end   = self.anchor.max(self.cursor);
-
-            let mut rect_count = 0;
-            drop(self.text_layout.HitTestTextRange(
-                begin as u32, (end - begin) as u32,
-                pos.x, pos.y,
-                None,
-                &mut rect_count));
-
-            let mut metrics = vec![Default::default(); rect_count as usize];
-            self.text_layout.HitTestTextRange(
-                begin as u32, (end - begin) as u32,
-                pos.x, pos.y,
-                Some(&mut metrics),
-                &mut rect_count).unwrap();
 
             let brush = self.rt.CreateSolidColorBrush(&D2D1_COLOR_F { r: 0.3, g: 0.5, b: 0.8, a: 0.25 }, None).unwrap();
 
             let old_aa = self.rt.GetAntialiasMode();
             self.rt.SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-            for metrics in metrics.iter() {
+
+            self.text_layout.hit_test_range(begin, end, |metrics| {
                 let rect = D2D_RECT_F {
-                    left:   metrics.left,
-                    top:    metrics.top,
-                    right:  metrics.left + metrics.width,
-                    bottom: metrics.top + metrics.height,
+                    left:   metrics.pos[0],
+                    top:    metrics.pos[1],
+                    right:  metrics.pos[0] + metrics.size[0],
+                    bottom: metrics.pos[1] + metrics.size[1],
                 };
                 self.rt.FillRectangle(&rect, &brush);
-            }
+            });
+
             self.rt.SetAntialiasMode(old_aa);
         }
-        */
 
         // caret
         let cursor_rect = self.cursor_rect();
@@ -310,37 +295,6 @@ impl Main {
         let bottom = top + h;
         D2D_RECT_F { left, top, right, bottom }
     }
-
-    // TEMP
-    /*
-
-    unsafe fn pos_from_coord(&mut self, x: f32, y: f32) -> usize {
-        let (mut trailing, mut inside, mut metrics) = Default::default();
-        self.text_layout.HitTestPoint(x, y, &mut trailing, &mut inside, &mut metrics).unwrap();
-
-        let pos = metrics.textPosition as usize;
-        let offset = if trailing.as_bool() { metrics.length as usize } else { 0 };
-        pos + offset
-    }
-
-    unsafe fn delete_selection(&mut self) {
-        let begin = self.anchor.min(self.cursor);
-        let end   = self.anchor.max(self.cursor);
-        self.text.drain(begin..end);
-        self.cursor = begin;
-        self.anchor = begin;
-
-        let old_layout = &self.text_layout;
-        let new_layout = self.dw_factory.CreateTextLayout(
-            &self.text,
-            old_layout,
-            old_layout.GetMaxWidth(),
-            old_layout.GetMaxHeight()).unwrap();
-        new_layout.SetTextAlignment(old_layout.GetTextAlignment()).unwrap();
-        new_layout.SetParagraphAlignment(old_layout.GetParagraphAlignment()).unwrap();
-        self.text_layout = new_layout;
-    }
-    */
 }
 
 

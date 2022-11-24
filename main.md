@@ -2,7 +2,6 @@
     - text layout.
 
 - todo:
-    - selection.
     - project structure: library & examples.
     - more style:
         - classes.
@@ -12,6 +11,7 @@
 
 - backlog:
     - text layout:
+        - `offset` for all position returning hit tests?
         - reshape word wrapping.
         - character wrapping.
         - text alignment.
