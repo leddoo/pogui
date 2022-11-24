@@ -16,11 +16,6 @@
             - well, no layout can only observe whether it is sized.
             - lines layout only sizes children in x.
               even if height is sized, cause there are no reasonable constraints.
-    - project clean up.
-        - `ctx`
-        - `text::{layout, fonts}`
-        - `element`
-        - `layout`
     - button element.
         - children for content.
         - only render it for now.

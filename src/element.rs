@@ -1,123 +1,21 @@
-use core::cell::{RefCell, Ref, RefMut};
-
+use core::cell::*;
 use std::rc::Rc;
-use std::collections::HashMap;
 
 use crate::win::*;
 use crate::ctx::*;
-use crate::gui::text_layout::*;
-
-
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct LayoutBox {
-    pub min: [f32; 2],
-    pub max: [f32; 2],
-}
-
-#[allow(dead_code)] // TEMP
-impl LayoutBox {
-    #[inline]
-    fn check_size(size: [f32; 2]) {
-        // TODO: is this correct?
-        assert!(size[0] >= 0.0);
-        assert!(size[1] >= 0.0);
-    }
-
-    #[inline]
-    fn check_size_finite(size: [f32; 2]) {
-        // TODO: is this correct?
-        assert!(size[0] >= 0.0 && size[0] < f32::INFINITY);
-        assert!(size[1] >= 0.0 && size[1] < f32::INFINITY);
-    }
-
-
-    #[inline]
-    pub fn min_size(min: [f32; 2]) -> LayoutBox {
-        Self::check_size_finite(min);
-        LayoutBox { min, max: [f32::INFINITY, f32::INFINITY] }
-    }
-
-    #[inline]
-    pub fn max_size(max: [f32; 2]) -> LayoutBox {
-        Self::check_size(max);
-        LayoutBox { min: [0.0, 0.0], max }
-    }
-
-    #[inline]
-    pub fn tight(size: [f32; 2]) -> LayoutBox {
-        Self::check_size_finite(size);
-        LayoutBox { min: size, max: size }
-    }
-
-    #[inline]
-    pub fn any() -> LayoutBox {
-        LayoutBox { min: [0.0, 0.0], max: [f32::INFINITY, f32::INFINITY] }
-    }
-
-    #[inline]
-    pub fn with_max(self, max: [f32; 2]) -> LayoutBox {
-        Self::check_size(max);
-        LayoutBox { min: self.min, max }
-    }
-
-    #[inline]
-    pub fn clamp(self, size: [f32; 2]) -> [f32; 2] {
-        [size[0].clamp(self.min[0], self.max[0]),
-         size[1].clamp(self.min[1], self.max[1])]
-    }
-
-    #[inline]
-    pub fn clamp_axis(self, size: f32, axis: usize) -> f32 {
-        size.clamp(self.min[axis], self.max[axis])
-    }
-
-    #[inline]
-    pub fn clamp_width(self, size: f32) -> f32 {
-        self.clamp_axis(size, 0)
-    }
-
-    #[inline]
-    pub fn clamp_height(self, size: f32) -> f32 {
-        self.clamp_axis(size, 1)
-    }
-
-
-    #[inline]
-    pub fn axis_is_tight(self, axis: usize) -> bool {
-        self.min[axis] == self.max[axis]
-    }
-
-    #[inline]
-    pub fn width_is_tight(self) -> bool {
-        self.axis_is_tight(0)
-    }
-
-    #[inline]
-    pub fn height_is_tight(self) -> bool {
-        self.axis_is_tight(1)
-    }
-}
-
-
+use crate::common::*;
+use crate::text::*;
 
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum ElementKind {
+pub enum ElementKind {
     Div,
     Span,
     Text,
 }
 
 
-enum Layout {
-    Lines,
-}
-
-type Style = HashMap<String, String>;
-
-
-struct Element {
+pub struct Element {
     kind: ElementKind,
 
     ctx: Ctx,
@@ -129,7 +27,7 @@ struct Element {
     next_sibling: Option<ElementRef>,
     prev_sibling: Option<ElementRef>,
 
-    pos:  [f32; 2],
+    pub pos:  [f32; 2],
     size: [f32; 2],
 
     style: Style,
@@ -142,31 +40,31 @@ struct Element {
 
 
 #[derive(Clone)]
-struct ElementRef (Rc<RefCell<Element>>);
+pub struct ElementRef (Rc<RefCell<Element>>);
 
 impl ElementRef {
     #[inline]
-    fn borrow(&self) -> Ref<Element> {
+    pub fn borrow(&self) -> Ref<Element> {
         self.0.borrow()
     }
 
     #[allow(dead_code)] // TEMP
     #[inline]
-    fn borrow_with<R, F: FnOnce(&Element) -> R>(&self, f: F) -> R {
+    pub fn borrow_with<R, F: FnOnce(&Element) -> R>(&self, f: F) -> R {
         f(&mut self.0.borrow())
     }
 
     #[inline]
-    fn borrow_mut(&self) -> RefMut<Element> {
+    pub fn borrow_mut(&self) -> RefMut<Element> {
         self.0.borrow_mut()
     }
 
     #[inline]
-    fn borrow_mut_with<R, F: FnOnce(&mut Element) -> R>(&self, f: F) -> R {
+    pub fn borrow_mut_with<R, F: FnOnce(&mut Element) -> R>(&self, f: F) -> R {
         f(&mut self.0.borrow_mut())
     }
 
-    fn with_style(self, style: Style) -> Self {
+    pub fn with_style(self, style: Style) -> Self {
         let mut this = self.borrow_mut();
         assert!(this.kind == ElementKind::Div || this.kind == ElementKind::Span);
         this.style = style;
@@ -184,7 +82,7 @@ enum RenderElement {
 
 
 impl Element {
-    fn new(kind: ElementKind, ctx: Ctx) -> Element {
+    pub fn new(kind: ElementKind, ctx: Ctx) -> Element {
         Element {
             kind, ctx,
             this: None,
@@ -199,15 +97,19 @@ impl Element {
         }
     }
 
-    fn visit_children<F: FnMut(&ElementRef)>(first_child: &Option<ElementRef>, mut f: F) {
+    pub fn visit_children<F: FnMut(&ElementRef)>(first_child: &Option<ElementRef>, mut f: F) {
         let mut at = first_child.clone();
         while let Some(child) = at {
             f(&child);
             at = child.borrow().next_sibling.clone();
         }
     }
+}
 
-    fn style(&mut self, parent: &Style) {
+
+
+impl Element {
+    pub fn style(&mut self, parent: &Style) {
         fn is_inherited_style(name: &str) -> bool {
             match name {
                 "text_color" => true,
@@ -236,7 +138,7 @@ impl Element {
         })
     }
 
-    fn render_children(&mut self, rt: &ID2D1RenderTarget) {
+    pub fn render_children(&mut self) {
         struct ChildRenderer<'a> {
             ctx: Ctx,
             children: &'a mut Vec<RenderElement>,
@@ -320,12 +222,12 @@ impl Element {
         // hopefully it can decide that locally?
         for child in &mut self.render_children {
             if let RenderElement::Element { ptr } = child {
-                ptr.borrow_mut().render_children(rt);
+                ptr.borrow_mut().render_children();
             }
         }
     }
 
-    fn max_width(&mut self) -> f32 {
+    pub fn max_width(&mut self) -> f32 {
         assert!(self.kind == ElementKind::Div);
 
         let layout = Layout::Lines;
@@ -360,7 +262,7 @@ impl Element {
         }
     }
 
-    fn layout(&mut self, lbox: LayoutBox) {
+    pub fn layout(&mut self, lbox: LayoutBox) {
         assert!(self.kind == ElementKind::Div);
 
         let layout = Layout::Lines;
@@ -478,7 +380,7 @@ impl Element {
         }
     }
 
-    fn paint(&mut self, rt: &ID2D1RenderTarget) {
+    pub fn paint(&mut self, rt: &ID2D1RenderTarget) {
         assert!(self.kind == ElementKind::Div);
 
         if let Some(color) = self.computed_style.get("background_color") {
@@ -592,8 +494,10 @@ impl Element {
 }
 
 
+
+
 impl Ctx {
-    fn to_ref(self, element: Element, children: Vec<ElementRef>) -> ElementRef {
+    pub fn to_ref(self, element: Element, children: Vec<ElementRef>) -> ElementRef {
         let this = ElementRef(Rc::new(RefCell::new(element)));
 
         let mut first_child = None;
@@ -626,256 +530,18 @@ impl Ctx {
         this
     }
 
-    fn div(self, children: Vec<ElementRef>) -> ElementRef {
+    pub fn div(self, children: Vec<ElementRef>) -> ElementRef {
         self.to_ref(Element::new(ElementKind::Div, self), children)
     }
 
-    fn span(self, children: Vec<ElementRef>) -> ElementRef {
+    pub fn span(self, children: Vec<ElementRef>) -> ElementRef {
         self.to_ref(Element::new(ElementKind::Span, self), children)
     }
 
-    fn text<Str: Into<String>>(self, value: Str) -> ElementRef {
+    pub fn text<Str: Into<String>>(self, value: Str) -> ElementRef {
         let mut result = Element::new(ElementKind::Text, self);
         result.text = value.into();
         self.to_ref(result, vec![])
     }
 }
 
-
-#[allow(dead_code)]
-struct Main {
-    window: HWND,
-    d2d_factory: ID2D1Factory,
-
-    rt: ID2D1HwndRenderTarget,
-    rt_size: D2D_SIZE_U,
-
-    size: [u32; 2],
-
-    root: ElementRef,
-}
-
-impl Main {
-    unsafe fn init(window: HWND, root: ElementRef) -> Main {
-        let d2d_factory: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None).unwrap();
-
-        let mut rect = RECT::default();
-        GetClientRect(window, &mut rect);
-
-        let size = [
-            (rect.right - rect.left) as u32,
-            (rect.bottom - rect.top) as u32,
-        ];
-
-        let rt_size = D2D_SIZE_U { width: size[0], height: size[1] };
-
-        let rt = d2d_factory.CreateHwndRenderTarget(
-            &Default::default(),
-            &D2D1_HWND_RENDER_TARGET_PROPERTIES {
-                hwnd: window,
-                pixelSize: rt_size,
-                ..Default::default()
-            }).unwrap();
-
-        // TEMP
-        {
-            let t0 = std::time::Instant::now();
-            let mut root = root.borrow_mut();
-            root.style(&Default::default());
-            root.render_children((&rt).into());
-            println!("styling took {:?}", t0.elapsed());
-        }
-
-        Main {
-            window,
-            d2d_factory,
-            rt, rt_size,
-            size,
-            root,
-        }
-    }
-
-    fn paint(&mut self) {
-        unsafe {
-            let mut rect = RECT::default();
-            GetClientRect(self.window, &mut rect);
-
-            let size = [
-                (rect.right - rect.left) as u32,
-                (rect.bottom - rect.top) as u32,
-            ];
-
-            let rt_size = D2D_SIZE_U { width: size[0], height: size[1] };
-            if rt_size != self.rt_size {
-                self.rt.Resize(&rt_size).unwrap();
-                self.rt_size = rt_size;
-            }
-
-
-            let mut root = self.root.borrow_mut();
-
-            let t0 = std::time::Instant::now();
-
-            root.layout(LayoutBox::tight([size[0] as f32 / 2.0, size[1] as f32]));
-            root.pos = [0.0, 0.0];
-
-            println!("layout took {:?}", t0.elapsed());
-
-            self.rt.BeginDraw();
-
-            self.rt.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
-
-            root.paint((&self.rt).into());
-
-            self.rt.EndDraw(None, None).unwrap();
-        }
-    }
-}
-
-pub fn main() {
-    let ctx = Ctx::new();
-
-    let root =
-        ctx.div(vec![
-            ctx.text("hello, "),
-            ctx.text("weirdo!"),
-            ctx.div(vec![
-                ctx.text("new line cause div"),
-                ctx.div(vec![
-                    ctx.text("div in div with inherited text color."),
-                    ctx.div(vec![
-                        ctx.text("ADivInADivInADiv"),
-                    ]),
-                ]).with_style([
-                    ("min_width".into(), "190".into()),
-                    ("max_width".into(), "400".into()),
-                    ("min_height".into(), "70".into()),
-                    ("max_height".into(), "100".into()),
-                    ("background_color".into(), "d040a0".into()),
-                ].into()),
-                ctx.div(vec![]).with_style([
-                    ("width".into(),  "50".into()),
-                    ("height".into(), "50".into()),
-                    ("background_color".into(), "807060".into()),
-                ].into()),
-                ctx.div(vec![
-                    ctx.text("nested div with a "),
-                    ctx.span(vec![ctx.text("different")]).with_style([
-                        ("text_color".into(), "40b040".into()),
-                    ].into()),
-                    ctx.text(" text color."),
-                ]).with_style([
-                    ("text_color".into(), "306080".into()),
-                ].into()),
-                ctx.text("more of the outer div"),
-            ]).with_style([
-                ("font_size".into(), "69".into()),
-                ("text_color".into(), "802020".into()),
-                ("background_color".into(), "eeeeff".into()),
-                ("min_height".into(), "250".into()),
-            ].into()),
-        ]);
-
-    unsafe {
-        std::panic::set_hook(Box::new(|info| {
-            println!("panic: {}", info);
-            loop {}
-        }));
-
-
-        const WINDOW_CLASS_NAME: &HSTRING = w!("window_class");
-
-        let instance = GetModuleHandleW(None).unwrap();
-
-        // set up window class
-        {
-            let wc = WNDCLASSW {
-                hInstance: instance,
-                lpszClassName: WINDOW_CLASS_NAME.into(),
-                lpfnWndProc: Some(window_proc),
-                hIcon: LoadIconW(None, IDI_APPLICATION).unwrap(),
-                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
-                ..Default::default()
-            };
-
-            let atom = RegisterClassW(&wc);
-            assert!(atom != 0);
-        }
-
-        // create window.
-        let window = CreateWindowExW(
-            Default::default(),
-            WINDOW_CLASS_NAME,
-            w!("window"),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            CW_USEDEFAULT, CW_USEDEFAULT,
-            CW_USEDEFAULT, CW_USEDEFAULT,
-            None,
-            None,
-            GetModuleHandleW(None).unwrap(),
-            None);
-        assert!(window.0 != 0);
-
-        let main = RefCell::new(Main::init(window, root));
-        SetWindowLongPtrW(window, GWLP_USERDATA, &main as *const _ as isize);
-
-
-        // event loop.
-        loop {
-            let mut message = MSG::default();
-            let result = GetMessageW(&mut message, HWND(0), 0, 0).0;
-            if result > 0 {
-                TranslateMessage(&message);
-                DispatchMessageW(&message);
-            }
-            else if result == 0 {
-                break;
-            }
-            else {
-                panic!();
-            }
-        }
-
-    }
-}
-
-
-unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    fn lo_u16(a: isize) -> u32 { (a as usize as u32) & 0xffff }
-    fn hi_u16(a: isize) -> u32 { ((a as usize as u32) >> 16) & 0xffff }
-
-    let mut main = {
-        let main = GetWindowLongPtrW(window, GWLP_USERDATA) as *const RefCell<Main>;
-        if main == core::ptr::null() {
-            return DefWindowProcW(window, message, wparam, lparam);
-        }
-
-        (*main).borrow_mut()
-    };
-
-    let message = message as u32;
-    match message {
-        WM_CLOSE => {
-            PostQuitMessage(0);
-            LRESULT(0)
-        },
-
-        WM_SIZE => {
-            let _w = lo_u16(lparam.0);
-            let _h = hi_u16(lparam.0);
-            InvalidateRect(window, None, false);
-            LRESULT(0)
-        },
-
-        WM_PAINT => {
-            main.paint();
-            ValidateRect(window, None);
-            LRESULT(0)
-        },
-
-        _ => {
-            drop(main);
-            DefWindowProcW(window, message, wparam, lparam)
-        }
-    }
-}

@@ -1,7 +1,7 @@
 use core::cell::RefCell;
-use std::rc::Rc;
+
 use crate::win::*;
-use crate::fonts::FontFamilyId;
+use crate::text::FontFamilyId;
 use crate::ctx::*;
 use crate::unicode::*;
 
