@@ -198,8 +198,58 @@ impl Main {
 
         self.rt.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
 
+        struct D2dTextRenderer<'a> {
+            rt:    &'a ID2D1HwndRenderTarget,
+            brush: &'a ID2D1SolidColorBrush,
+        }
+
+        impl<'a> TextRenderer for D2dTextRenderer<'a> {
+            fn glyphs(&self, data: &DrawGlyphs) {
+                let run = DWRITE_GLYPH_RUN {
+                    fontFace: Some(data.font_face.clone()),
+                    fontEmSize: data.format.font_size,
+                    glyphCount: data.indices.len() as u32,
+                    glyphIndices: data.indices.as_ptr(),
+                    glyphAdvances: data.advances.as_ptr(),
+                    glyphOffsets: data.offsets.as_ptr() as *const _,
+                    isSideways: false.into(),
+                    bidiLevel: data.is_rtl as u32,
+                };
+
+                let pos = D2D_POINT_2F {
+                    x: data.pos[0],
+                    y: data.pos[1],
+                };
+                unsafe { self.rt.DrawGlyphRun(pos, &run, self.brush, Default::default()) };
+            }
+
+            fn line(&self, data: &DrawLine, _kind: DrawLineKind) {
+                let rect = D2D_RECT_F {
+                    left:   data.x0,
+                    top:    data.y - data.thickness/2.0,
+                    right:  data.x1,
+                    bottom: data.y + data.thickness/2.0,
+                };
+                unsafe { self.rt.FillRectangle(&rect, self.brush) };
+            }
+
+            fn object(&self, data: &DrawObject) {
+                let rect = D2D_RECT_F {
+                    left:   data.pos[0],
+                    top:    data.pos[1] - data.baseline,
+                    right:  data.pos[0] + data.size[0],
+                    bottom: data.pos[1] + data.size[1] - data.baseline,
+                };
+                unsafe { self.rt.FillRectangle(&rect, self.brush) };
+            }
+        }
+
         // text
-        self.text_layout.draw([rect.left as f32, rect.top as f32], (&self.rt).into(), (&self.brush).into());
+        let renderer = D2dTextRenderer {
+            rt:    &self.rt,
+            brush: &self.brush,
+        };
+        self.text_layout.draw([rect.left as f32, rect.top as f32], &renderer);
 
         // selection
         // TEMP

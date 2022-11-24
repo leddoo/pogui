@@ -2,11 +2,7 @@
     - text layout.
 
 - todo:
-    - custom text layout:
-        - `TextFormat::effect: usize`
-            - just create separate spans for now.
-            - will split `fi`, but whatever. let's keep it simple, for now.
-        - renderer callback thing.
+    - selection.
     - project structure: library & examples.
     - more style:
         - classes.

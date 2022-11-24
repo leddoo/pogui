@@ -56,7 +56,7 @@ struct TextSpan {
     glyph_indices:  Vec<u16>,
     glyph_props:    Vec<DWRITE_SHAPING_GLYPH_PROPERTIES>,
     glyph_advances: Vec<f32>,
-    glyph_offsets:  Vec<DWRITE_GLYPH_OFFSET>,
+    glyph_offsets:  Vec<[f32; 2]>,
 }
 
 #[derive(Debug)]
@@ -438,119 +438,125 @@ impl TextLayout {
 }
 
 
-impl TextLayout {
-    pub fn draw(&self, pos: [f32; 2], rt: &ID2D1RenderTarget, brush: &ID2D1Brush) {
-        // TEMP
-        let rect = D2D_RECT_F {
-            left:   pos[0],
-            top:    pos[1],
-            right:  pos[0] + self.size[0],
-            bottom: pos[1] + self.size[1],
-        };
-        unsafe { rt.DrawRectangle(&rect, brush, 1.0, None) };
+pub struct DrawGlyphs<'a> {
+    pub pos: [f32; 2],
 
+    pub text_begin: u32,
+    pub text_end:   u32,
+
+    pub format:    &'a TextFormat,
+    pub font_face: &'a IDWriteFontFace, // TEMP.
+    pub is_rtl:    bool,
+
+    pub cluster_map: &'a [u16],
+    pub indices:     &'a [u16],
+    pub advances:    &'a [f32],
+    pub offsets:     &'a [[f32; 2]],
+}
+
+pub struct DrawLine {
+    pub x0: f32,
+    pub x1: f32,
+    pub y:  f32,
+    pub thickness: f32,
+}
+
+pub struct DrawObject {
+    pub text_pos: u32,
+    pub index:    u32,  // TODO: id.
+    pub pos:      [f32; 2],
+    pub size:     [f32; 2],
+    pub baseline: f32,
+}
+
+pub enum DrawLineKind {
+    Underline,
+    Strikethrough,
+}
+
+pub trait TextRenderer {
+    fn glyphs(&self, data: &DrawGlyphs);
+    fn line(&self, data: &DrawLine, kind: DrawLineKind);
+    fn object(&self, data: &DrawObject);
+}
+
+impl TextLayout {
+    pub fn draw<Renderer: TextRenderer>(&self, pos: [f32; 2], renderer: &Renderer) {
         let mut cursor = pos[1];
         for line in &self.lines {
-            // TEMP
-            let rect = D2D_RECT_F {
-                left:   pos[0],
-                top:    cursor,
-                right:  pos[0] + line.width,
-                bottom: cursor + line.height,
-            };
-            unsafe { rt.DrawRectangle(&rect, brush, 1.0, None) };
-
             let mut x = pos[0];
             for vspan in &line.spans {
                 let tspan = &self.spans[vspan.span_index as usize];
-
-                let y = cursor + line.baseline;
-
-                if tspan.object_index != u32::MAX {
-                    let object = &self.objects[tspan.object_index as usize];
-
-                    let y = y - object.baseline;
-                    let rect = D2D_RECT_F {
-                        left:   x,
-                        top:    y,
-                        right:  x + object.size[0],
-                        bottom: y + object.size[1],
-                    };
-
-                    // TEMP.
-                    unsafe { rt.FillRectangle(&rect, brush) };
-
-                    x += vspan.width;
-                    continue;
-                }
 
                 // empty line.
                 if vspan.text_begin_utf8 == vspan.text_end_utf8 {
                     continue;
                 }
 
-                let rtl_offset = if tspan.is_rtl { vspan.width } else { 0.0 };
+                let y = cursor + line.baseline;
 
-                let face = tspan.font_face.as_ref().unwrap();
+                if tspan.object_index != u32::MAX {
+                    let object = &self.objects[tspan.object_index as usize];
+                    let draw_object = DrawObject {
+                        text_pos: object.text_pos,
+                        index:    object.index,
+                        pos:      object.pos,
+                        size:     object.size,
+                        baseline: object.baseline,
+                    };
+                    renderer.object(&draw_object);
+                }
+                else {
+                    let rtl_offset = if tspan.is_rtl { vspan.width } else { 0.0 };
 
-                let glyph_count = vspan.glyph_end - vspan.glyph_begin;
-                let glyph_indices  = &tspan.glyph_indices[vspan.glyph_begin as usize];
-                let glyph_advances = &tspan.glyph_advances[vspan.glyph_begin as usize];
-                let glyph_offsets  = &tspan.glyph_offsets[vspan.glyph_begin as usize];
-                let run = DWRITE_GLYPH_RUN {
-                    fontFace: Some(face.clone()),
-                    fontEmSize: tspan.format.font_size,
-                    glyphCount: glyph_count,
-                    glyphIndices: glyph_indices,
-                    glyphAdvances: glyph_advances,
-                    glyphOffsets: glyph_offsets,
-                    isSideways: false.into(),
-                    bidiLevel: tspan.is_rtl as u32,
-                };
+                    let gb = vspan.glyph_begin as usize;
+                    let ge = vspan.glyph_end   as usize;
 
-                let pos = D2D_POINT_2F {
-                    x: x + rtl_offset,
-                    y,
-                };
-                unsafe { rt.DrawGlyphRun(pos, &run, brush, Default::default()) };
+                    renderer.glyphs(&DrawGlyphs {
+                        pos: [x + rtl_offset, y],
+                        text_begin: vspan.text_begin_utf8,
+                        text_end:   vspan.text_end_utf8,
+
+                        format:     &tspan.format,
+                        font_face:  tspan.font_face.as_ref().unwrap(),
+                        is_rtl:     tspan.is_rtl,
+
+                        cluster_map: &tspan.cluster_map[gb..ge],
+                        indices:     &tspan.glyph_indices[gb..ge],
+                        advances:    &tspan.glyph_advances[gb..ge],
+                        offsets:     &tspan.glyph_offsets[gb..ge],
+                    });
 
 
-                if tspan.format.underline || tspan.format.strikethrough {
-                    let mut metrics = Default::default();
-                    unsafe { face.GetMetrics(&mut metrics) };
+                    // TODO: also for inline objects.
+                    if tspan.format.underline || tspan.format.strikethrough {
+                        let face = tspan.font_face.as_ref().unwrap();
+                        let mut metrics = Default::default();
+                        unsafe { face.GetMetrics(&mut metrics) };
 
-                    let scale = tspan.format.font_size / metrics.designUnitsPerEm as f32;
+                        let scale = tspan.format.font_size / metrics.designUnitsPerEm as f32;
 
-                    // TODO: should these be pixel aligned?
-                    // thinking use that "text renderer callback" idea.
-                    // then the renderer can decide.
+                        if tspan.format.underline {
+                            let offset = scale * metrics.underlinePosition as f32;
+                            let height = scale * metrics.underlineThickness as f32;
+                            renderer.line(&DrawLine {
+                                x0: x,
+                                x1: x + vspan.width,
+                                y:  y - offset,
+                                thickness: height,
+                            }, DrawLineKind::Underline);
+                        }
 
-                    if tspan.format.underline {
-                        let offset = scale * metrics.underlinePosition as f32;
-                        let height = scale * metrics.underlineThickness as f32;
-
-                        let y = y - offset;
-                        let rect = D2D_RECT_F {
-                            left:   x,
-                            top:    y - height/2.0,
-                            right:  x + vspan.width,
-                            bottom: y + height/2.0,
-                        };
-                        unsafe { rt.FillRectangle(&rect, brush) };
-                    }
-
-                    if tspan.format.strikethrough {
-                        let offset = scale * metrics.strikethroughPosition as f32;
-                        let height = scale * metrics.strikethroughThickness as f32;
-
-                        let y = y - offset;
-                        let rect = D2D_RECT_F {
-                            left:   x,
-                            top:    y - height/2.0,
-                            right:  x + vspan.width,
-                            bottom: y + height/2.0,
-                        };
-                        unsafe { rt.FillRectangle(&rect, brush) };
+                        if tspan.format.strikethrough {
+                            let offset = scale * metrics.strikethroughPosition as f32;
+                            let height = scale * metrics.strikethroughThickness as f32;
+                            renderer.line(&DrawLine {
+                                x0: x,
+                                x1: x + vspan.width,
+                                y:  y - offset,
+                                thickness: height,
+                            }, DrawLineKind::Strikethrough);
+                        }
                     }
                 }
 
@@ -1051,6 +1057,8 @@ impl TextLayoutBuilder {
 
                     let mut glyph_advances = vec![0.0; glyph_count as usize];
                     let mut glyph_offsets  = vec![Default::default(); glyph_count as usize];
+                    assert_eq!(core::mem::size_of::<DWRITE_GLYPH_OFFSET>(),
+                               core::mem::size_of::<[f32; 2]>());
 
                     analyzer.GetGlyphPlacements(
                         PCWSTR(string.as_ptr()),
@@ -1066,7 +1074,8 @@ impl TextLayoutBuilder {
                         w!("en-us"),
                         None, None, 0,
                         glyph_advances.as_mut_ptr(),
-                        glyph_offsets.as_mut_ptr()).unwrap();
+                        glyph_offsets.as_mut_ptr() as *mut DWRITE_GLYPH_OFFSET,
+                    ).unwrap();
 
 
                     let mut width = 0.0;
