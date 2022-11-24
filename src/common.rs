@@ -96,6 +96,13 @@ impl LayoutBox {
 pub type Style = HashMap<String, String>;
 
 
+pub enum Display {
+    None,
+    Inline,
+    Block,
+}
+
+
 pub enum Layout {
     Lines,
 }

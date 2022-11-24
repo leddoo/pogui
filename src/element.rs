@@ -10,9 +10,32 @@ use crate::text::*;
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ElementKind {
     Div,
+    Button,
     Span,
     Text,
-    Button,
+}
+
+impl ElementKind {
+    #[inline]
+    pub const fn is_container(self) -> bool {
+        use ElementKind::*;
+        match self {
+            Div | Button => true,
+            Span | Text => false,
+        }
+    }
+
+    #[inline]
+    pub const fn default_display(self) -> Display {
+        use ElementKind::*;
+        use Display::*;
+        match self {
+            Div     => Block,
+            Button  => Inline,
+            Span    => Inline,
+            Text    => Inline,
+        }
+    }
 }
 
 
@@ -74,10 +97,29 @@ impl ElementRef {
     }
 }
 
+impl Element {
+    pub fn display(&self) -> Display {
+        self.computed_style.get("display")
+        .map(|display| {
+            match display.as_str() {
+                "none"   => Display::None,
+                "inline" => Display::Inline,
+                "block"  => Display::Block,
+                _ => unimplemented!(),
+            }
+        })
+        .unwrap_or(self.kind.default_display())
+    }
+}
+
 
 enum RenderElement {
     Element { ptr: ElementRef },
-    Text  { pos: [f32; 2], layout: TextLayout },
+    Text {
+        pos: [f32; 2],
+        layout: TextLayout,
+        objects: Vec<ElementRef>,
+    },
 }
 
 
@@ -146,18 +188,22 @@ impl Element {
             ctx: Ctx,
             children: &'a mut Vec<RenderElement>,
             builder: TextLayoutBuilder,
+            objects: Vec<ElementRef>,
         }
 
         impl<'a> ChildRenderer<'a> {
             fn flush(&mut self) {
+                if self.builder.text().len() == 0 {
+                    return;
+                }
+
                 let mut new_builder = TextLayoutBuilder::new(self.ctx, self.builder.base_format());
                 new_builder.set_format(self.builder.current_format());
 
                 let builder = core::mem::replace(&mut self.builder, new_builder);
-                if builder.text().len() > 0 {
-                    let layout  = builder.build();
-                    self.children.push(RenderElement::Text { pos: [0.0; 2], layout });
-                }
+                let layout  = builder.build();
+                let objects = core::mem::replace(&mut self.objects, vec![]);
+                self.children.push(RenderElement::Text { pos: [0.0; 2], layout, objects });
             }
 
             fn with_style<F: FnOnce(&mut Self)>(&mut self, style: &Style, f: F) {
@@ -179,29 +225,34 @@ impl Element {
 
             fn visit(&mut self, el: &ElementRef) {
                 let mut e = el.borrow_mut();
-                match e.kind {
-                    ElementKind::Div => {
+
+                if e.kind == ElementKind::Text {
+                    self.builder.add_string(&e.text);
+                    return;
+                }
+
+                match e.display() {
+                    Display::None => {}
+
+                    Display::Inline => {
+                        if e.kind.is_container() {
+                            e.render_children();
+                            self.builder.add_object();
+                            self.objects.push(el.clone());
+                        }
+                        else {
+                            self.with_style(&e.computed_style, |this| {
+                                Element::visit_children(&e.first_child, |child| {
+                                    this.visit(child);
+                                });
+                            })
+                        }
+                    }
+
+                    Display::Block => {
+                        e.render_children();
                         self.flush();
                         self.children.push(RenderElement::Element { ptr: el.clone() });
-                        e.render_children();
-                    }
-
-                    ElementKind::Span => {
-                        self.with_style(&e.computed_style, |this| {
-                            Element::visit_children(&e.first_child, |child| {
-                                this.visit(child);
-                            });
-                        })
-                    }
-
-                    ElementKind::Text => {
-                        self.builder.add_string(&e.text);
-                    }
-
-                    ElementKind::Button => {
-                        self.flush();
-                        self.children.push(RenderElement::Element { ptr: el.clone() });
-                        e.render_children();
                     }
                 }
             }
@@ -219,6 +270,7 @@ impl Element {
             ctx: self.ctx,
             children: &mut self.render_children,
             builder: TextLayoutBuilder::new(self.ctx, format),
+            objects: vec![],
         };
 
         cr.with_style(&self.computed_style, |cr| {
@@ -252,7 +304,7 @@ impl Element {
                             max_width = max_width.max(child.max_width());
                         }
 
-                        RenderElement::Text { pos: _, layout } => {
+                        RenderElement::Text { pos: _, layout: _, objects: _ } => {
                             // TODO.
                             unimplemented!();
                         }
@@ -290,9 +342,21 @@ impl Element {
                                     max_width = max_width.max(child.max_width());
                                 }
 
-                                RenderElement::Text { pos: _, layout } => {
-                                    // TODO.
-                                    unimplemented!();
+                                RenderElement::Text { pos: _, layout, objects } => {
+                                    // TODO: duplicated. also, want to cache.
+                                    for (i, obj) in objects.iter().enumerate() {
+                                        let mut o = obj.borrow_mut();
+                                        o.layout(LayoutBox::any());
+
+                                        layout.set_object_size(i, o.size);
+                                        layout.set_object_baseline(i, o.size[1]);
+                                    }
+
+                                    // TODO: dedicated max_width.
+                                    layout.set_layout_width(f32::INFINITY);
+                                    layout.layout();
+
+                                    max_width = max_width.max(layout.actual_size()[0]);
                                 }
                             }
                         }
@@ -372,9 +436,26 @@ impl Element {
                             cursor += height;
                         }
 
-                        RenderElement::Text { pos, layout } => {
+                        RenderElement::Text { pos, layout, objects } => {
+                            for (i, obj) in objects.iter().enumerate() {
+                                let mut o = obj.borrow_mut();
+                                o.layout(LayoutBox::any());
+
+                                layout.set_object_size(i, o.size);
+                                layout.set_object_baseline(i, o.size[1]);
+                            }
+
                             layout.set_layout_width(this_width);
                             layout.layout();
+
+                            for (i, obj) in objects.iter().enumerate() {
+                                // TODO: object positions relative to their top left?
+                                // instead of baseline.
+                                let mut o = obj.borrow_mut();
+                                o.pos = layout.get_object_pos(i);
+                                o.pos[1] -= o.size[1];
+                            }
+
                             let height = layout.actual_size()[1];
                             *pos = [0.0, cursor];
                             cursor += height;
@@ -449,10 +530,11 @@ impl Element {
                     ptr.0.borrow_mut().paint(rt);
                 }
 
-                RenderElement::Text { pos, layout } => {
+                RenderElement::Text { pos, layout, objects } => {
                     struct D2dTextRenderer<'a> {
                         rt:    &'a ID2D1RenderTarget,
                         brush: &'a ID2D1SolidColorBrush,
+                        objects: &'a [ElementRef],
                     }
 
                     impl<'a> TextRenderer for D2dTextRenderer<'a> {
@@ -495,13 +577,8 @@ impl Element {
                         }
 
                         fn object(&self, data: &DrawObject) {
-                            let rect = D2D_RECT_F {
-                                left:   data.pos[0],
-                                top:    data.pos[1] - data.baseline,
-                                right:  data.pos[0] + data.size[0],
-                                bottom: data.pos[1] + data.size[1] - data.baseline,
-                            };
-                            unsafe { self.rt.FillRectangle(&rect, self.brush) };
+                            let mut o = self.objects[data.index as usize].borrow_mut();
+                            o.paint(self.rt);
                         }
                     }
 
@@ -511,6 +588,7 @@ impl Element {
                     let r = D2dTextRenderer {
                         rt: rt.into(),
                         brush: &brush,
+                        objects: &objects,
                     };
                     layout.draw(*pos, &r);
                 }

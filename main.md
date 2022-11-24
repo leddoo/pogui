@@ -6,9 +6,8 @@
         - interactivity.
 
 - present:
-    - inline vs block elements.
-        - thinking `Display := None | Block | Inline`
-        - & `is_container(kind)`
+    - element baseline.
+        - container elements: baseline of last line (or block child).
     - focus, hover, tab navigation.
         - which elements can be focused/hovered?
             - what properties does a div need to act like a button?

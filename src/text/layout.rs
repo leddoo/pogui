@@ -149,6 +149,19 @@ impl TextLayout {
         }
     }
 
+    pub fn set_object_size(&mut self, object_index: usize, size: [f32; 2]) {
+        self.objects[object_index].size = size;
+    }
+
+    pub fn set_object_baseline(&mut self, object_index: usize, baseline: f32) {
+        self.objects[object_index].baseline = baseline;
+    }
+
+    pub fn get_object_pos(&self, object_index: usize) -> [f32; 2] {
+        self.objects[object_index].pos
+    }
+
+
     #[allow(dead_code)] // TEMP
     #[inline]
     pub fn layout_params(&self) -> LayoutParams {
