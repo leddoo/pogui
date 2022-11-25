@@ -577,6 +577,39 @@ impl Element {
             _ => Cursor::Default,
         }
     }
+
+    pub fn on_hover_start(&mut self) {
+        println!("{:?} hover start", self as *const _);
+    }
+
+    pub fn on_hover_stop(&mut self) {
+        println!("{:?} hover stop", self as *const _);
+    }
+
+    pub fn on_active_start(&mut self) {
+        println!("{:?} active start", self as *const _);
+    }
+
+    pub fn on_active_stop(&mut self) {
+        println!("{:?} active stop", self as *const _);
+    }
+
+    pub fn on_mouse_down(&mut self) {
+        println!("{:?} mouse down", self as *const _);
+    }
+
+    pub fn on_mouse_up(&mut self) {
+        println!("{:?} mouse up", self as *const _);
+
+        if self.kind == ElementKind::Button && self.active {
+            println!("clicked!");
+        }
+    }
+
+    pub fn on_mouse_move(&mut self, x: f32, y: f32) {
+        let _ = (x, y);
+        //println!("{:?} mouse move {} {}", self as *const _, x, y);
+    }
 }
 
 

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::win::*;
 use crate::common::*;
 use crate::element::*;
@@ -23,40 +25,71 @@ impl Gui {
     }
 
     pub fn on_mouse_move(&mut self, x: f32, y: f32) {
-        if self.root.is_none() { return }
+        let old_hover = self.hover.as_ref();
+        let new_hover = {
+            let root = self.root.as_ref().unwrap();
+            let hit = Element::hit_test(root, x, y, Element::pointer_events);
+            hit.map(|(el, _)| el)
+        };
 
-        // TODO: send message. but only on change.
-        if let Some(old_hover) = self.hover.as_ref() {
-            old_hover.borrow_mut().hover = false;
+        // detect no change.
+        if old_hover.is_none() && new_hover.is_none() {
+            return;
+        }
+        if let (Some(old), Some(new)) = (old_hover, &new_hover) {
+            if Rc::ptr_eq(&old.0, &new.0) {
+                let mut hover = old.borrow_mut();
+                hover.on_mouse_move(x, y);
+                return;
+            }
         }
 
-        let root = self.root.as_ref().unwrap();
-        let hit = Element::hit_test(root, x, y, Element::pointer_events);
-        if let Some((el, _offset)) = hit {
-            el.borrow_mut().hover = true;
-            self.hover = Some(el);
+        if let Some(old) = old_hover {
+            let mut old = old.borrow_mut();
+            old.hover = false;
+            old.on_hover_stop();
         }
+
+        if let Some(new) = &new_hover {
+            let mut new = new.borrow_mut();
+            new.hover = true;
+            new.on_hover_start();
+        }
+
+        self.hover = new_hover;
     }
 
     pub fn on_mouse_down(&mut self) {
+        assert!(self.active.is_none());
+
         if let Some(hover) = self.hover.as_ref() {
-            hover.borrow_mut().active = true;
-            self.active = Some(hover.clone());
+            let mut h = hover.borrow_mut();
+            h.on_mouse_down();
         }
-        else {
-            // TODO: send message on change.
-            if let Some(old_active) = self.active.as_ref() {
-                old_active.borrow_mut().active = false;
-            }
-            self.active = None;
+
+        let new_active = self.hover.as_ref();
+
+        if let Some(new) = new_active {
+            let mut new = new.borrow_mut();
+            new.active = true;
+            new.on_active_start();
         }
+
+        self.active = new_active.cloned();
     }
 
     pub fn on_mouse_up(&mut self) {
-        // TODO: send message on change.
-        if let Some(old_active) = self.active.as_ref() {
-            old_active.borrow_mut().active = false;
+        if let Some(hover) = self.hover.as_ref() {
+            let mut h = hover.borrow_mut();
+            h.on_mouse_up();
         }
+
+        if let Some(old) = self.active.as_ref() {
+            let mut old = old.borrow_mut();
+            old.active = false;
+            old.on_active_stop();
+        }
+
         self.active = None;
     }
 

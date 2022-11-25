@@ -6,11 +6,12 @@
         - interactivity.
 
 - present:
-    - forward mouse events to hover element.
+    - button click callback.
+        - when mouse is released while hovered & active.
+        - in some language agnostic way.
+    - tree mutation.
     - which elements can be hovered/active?
     - tab navigation.
-    - callbacks. in some language agnostic way.
-    - tree mutation.
 
 - horizon:
     - more style:
