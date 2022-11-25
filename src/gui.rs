@@ -6,7 +6,8 @@ use crate::element::*;
 pub struct Gui {
     pub root: Option<ElementRef>,
 
-    pub hover: Option<(ElementRef, usize)>,
+    pub hover:  Option<ElementRef>,
+    pub active: Option<ElementRef>,
 
     pub window_size: [f32; 2],
 }
@@ -15,7 +16,8 @@ impl Gui {
     pub fn new() -> Gui {
         Gui {
             root: None,
-            hover: None,
+            hover:  None,
+            active: None,
             window_size: [0.0; 2],
         }
     }
@@ -25,17 +27,37 @@ impl Gui {
 
         // TODO: send message. but only on change.
         if let Some(old_hover) = self.hover.as_ref() {
-            old_hover.0.borrow_mut().hover = false;
+            old_hover.borrow_mut().hover = false;
         }
 
         let root = self.root.as_ref().unwrap();
         let hit = Element::hit_test(root, x, y, Element::pointer_events);
-        if let Some((el, offset)) = hit {
+        if let Some((el, _offset)) = hit {
             el.borrow_mut().hover = true;
-
-            println!("hit {:?}, {}", el.0.as_ptr(), offset);
-            self.hover = Some((el, offset));
+            self.hover = Some(el);
         }
+    }
+
+    pub fn on_mouse_down(&mut self) {
+        if let Some(hover) = self.hover.as_ref() {
+            hover.borrow_mut().active = true;
+            self.active = Some(hover.clone());
+        }
+        else {
+            // TODO: send message on change.
+            if let Some(old_active) = self.active.as_ref() {
+                old_active.borrow_mut().active = false;
+            }
+            self.active = None;
+        }
+    }
+
+    pub fn on_mouse_up(&mut self) {
+        // TODO: send message on change.
+        if let Some(old_active) = self.active.as_ref() {
+            old_active.borrow_mut().active = false;
+        }
+        self.active = None;
     }
 
     pub fn set_window_size(&mut self, w: f32, h: f32) {

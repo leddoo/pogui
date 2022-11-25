@@ -6,9 +6,6 @@
         - interactivity.
 
 - present:
-    - active:
-        - assign hover on mouse down.
-        - clear on mouse up.
     - forward mouse events to hover element.
     - which elements can be hovered/active?
     - tab navigation.
@@ -24,6 +21,7 @@
 
 
 - backlog:
+    - fix cursor stale state.
     - figure out layout rounding.
     - text layout:
         - trailing whitespace.

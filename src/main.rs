@@ -222,6 +222,22 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             LRESULT(0)
         },
 
+        WM_LBUTTONDOWN => {
+            let mut gui = main.ctx.gui.borrow_mut();
+            gui.on_mouse_down();
+
+            InvalidateRect(window, None, false);
+            LRESULT(0)
+        }
+
+        WM_LBUTTONUP => {
+            let mut gui = main.ctx.gui.borrow_mut();
+            gui.on_mouse_up();
+
+            InvalidateRect(window, None, false);
+            LRESULT(0)
+        }
+
         WM_MOUSEMOVE => {
             let x = lo_u16(lparam.0);
             let y = hi_u16(lparam.0);

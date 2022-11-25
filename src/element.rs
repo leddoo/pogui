@@ -55,7 +55,8 @@ pub struct Element {
     size: [f32; 2],
     baseline: f32,
 
-    pub hover: bool,
+    pub hover:  bool,
+    pub active: bool,
 
     style: Style,
     computed_style: Style,
@@ -140,6 +141,7 @@ impl Element {
             pos: [0.0, 0.0], size: [0.0, 0.0],
             baseline: 0.0,
             hover: false,
+            active: false,
             style: Style::new(),
             computed_style: Style::new(),
             render_children: vec![],
@@ -609,7 +611,10 @@ impl Element {
 
         if self.kind == ElementKind::Button {
             unsafe {
-                let color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+                let mut color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+                if self.hover && self.active {
+                    color = D2D1_COLOR_F { r: 1.0, g: 0.5, b: 0.2, a: 1.0 };
+                }
                 let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
 
                 let width = if self.hover { 2.0 } else { 1.0 };
