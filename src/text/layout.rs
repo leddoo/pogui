@@ -370,8 +370,12 @@ impl TextLayout {
 pub struct HitMetrics {
     pub text_pos_left:  u32,
     pub text_pos_right: u32,
+
     pub fraction: f32,
     pub out_of_bounds: [bool; 2],
+
+    pub object: Option<usize>,
+    pub is_rtl: bool,
 }
 
 impl TextLayout {
@@ -384,6 +388,8 @@ impl TextLayout {
                 text_pos_right: line.text_begin_utf8,
                 fraction: 0.0,
                 out_of_bounds: [true, false],
+                object: None,
+                is_rtl: false,
             };
         }
 
@@ -400,6 +406,8 @@ impl TextLayout {
                         text_pos_right: vspan.text_end_utf8,
                         fraction,
                         out_of_bounds: [false, false],
+                        object: Some(tspan.object_index as usize),
+                        is_rtl: false,
                     };
                 }
 
@@ -435,6 +443,8 @@ impl TextLayout {
                         text_pos_right: tspan.text_begin_utf8 + text_right as u32,
                         fraction,
                         out_of_bounds: [false, false],
+                        object: None,
+                        is_rtl: tspan.is_rtl,
                     }
                 }
 
@@ -448,6 +458,8 @@ impl TextLayout {
             text_pos_right: line.text_end_utf8,
             fraction: 0.0,
             out_of_bounds: [true, false],
+            object: None,
+            is_rtl: false,
         };
     }
 
@@ -458,6 +470,8 @@ impl TextLayout {
                 text_pos_right: 0,
                 fraction: 0.0,
                 out_of_bounds: [true, true],
+                object: None,
+                is_rtl: false,
             }
         }
 

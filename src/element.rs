@@ -65,7 +65,7 @@ pub struct Element {
 
 
 #[derive(Clone)]
-pub struct ElementRef (Rc<RefCell<Element>>);
+pub struct ElementRef (pub Rc<RefCell<Element>>);
 
 impl ElementRef {
     #[inline]
@@ -487,6 +487,89 @@ impl Element {
                 self.size = [this_width, height];
                 self.baseline = cursor - last_baseline;
             }
+        }
+    }
+}
+
+
+
+// HIT TESTING & EVENTS
+
+impl Element {
+    pub fn hit_test<P: Fn(&Element) -> bool + Copy>(this: &ElementRef, x: f32, y: f32, p: P) -> Option<(ElementRef, usize)> {
+        let me = this.borrow();
+        assert!(me.kind == ElementKind::Div
+            ||  me.kind == ElementKind::Button);
+
+        let x = x - me.pos[0];
+        let y = y - me.pos[1];
+
+        let mut cursor = 0;
+        // TODO: technically rev()
+        // but have to find a proper solution for `cursor`.
+        for child in me.render_children.iter() {
+            match child {
+                RenderElement::Element { ptr } => {
+                    let result = Element::hit_test(ptr, x, y, p);
+                    if result.is_some() {
+                        return result;
+                    }
+
+                    cursor += 1;
+                }
+
+                RenderElement::Text { pos, layout, objects } => {
+                    let x = x - pos[0];
+                    let y = y - pos[1];
+
+                    let hit = layout.hit_test_pos(x, y);
+                    if !hit.out_of_bounds[0] && !hit.out_of_bounds[1] {
+                        if let Some(index) = hit.object {
+                            let hit = Element::hit_test(&objects[index], x, y, p);
+                            if hit.is_some() {
+                                return hit;
+                            }
+                        }
+                        else {
+                            let offset =
+                                if hit.fraction < 0.5 { hit.text_pos_left  }
+                                else                  { hit.text_pos_right };
+
+                            return Some((this.clone(), cursor + offset as usize));
+                        }
+                    }
+
+                    cursor += layout.text().len();
+                }
+            }
+        }
+
+        if !p(&me) {
+            return None;
+        }
+
+        // TODO: closest cursor position.
+        if x >= 0.0 && x < me.size[0]
+        && y >= 0.0 && y < me.size[1] {
+            return Some((this.clone(), 0));
+        }
+
+        None
+    }
+
+    pub fn pointer_events(&self) -> bool {
+        // TODO: false by default for some elements?
+        self.computed_style.get("pointer_events")
+        .map(|value| value == "true")
+        .unwrap_or(true)
+    }
+
+    pub fn cursor(&self) -> Cursor {
+        match self.kind {
+            ElementKind::Button => Cursor::Pointer,
+            ElementKind::Text   => Cursor::Text,
+
+            _ => Cursor::Default,
         }
     }
 }

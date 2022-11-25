@@ -6,20 +6,25 @@ mod win;
 mod unicode;
 mod common;
 mod ctx;
+mod gui;
 mod text;
 mod element;
 
 
 use crate::win::*;
 use crate::ctx::*;
-use crate::common::*;
-use crate::element::*;
+use crate::common::Cursor;
 
 
 
 #[allow(dead_code)]
 struct Main {
     window: HWND,
+
+    cursor_default: HCURSOR,
+    cursor_pointer: HCURSOR,
+    cursor_text:    HCURSOR,
+
     d2d_factory: ID2D1Factory,
 
     rt: ID2D1HwndRenderTarget,
@@ -27,11 +32,15 @@ struct Main {
 
     size: [u32; 2],
 
-    root: ElementRef,
+    ctx: Ctx,
 }
 
 impl Main {
-    unsafe fn init(window: HWND, root: ElementRef) -> Main {
+    unsafe fn init(window: HWND, ctx: Ctx) -> Main {
+        let cursor_default = LoadCursorW(None, IDC_ARROW).unwrap();
+        let cursor_pointer = LoadCursorW(None, IDC_HAND).unwrap();
+        let cursor_text    = LoadCursorW(None, IDC_IBEAM).unwrap();
+
         let d2d_factory: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None).unwrap();
 
         let mut rect = RECT::default();
@@ -52,58 +61,19 @@ impl Main {
                 ..Default::default()
             }).unwrap();
 
-        // TEMP
-        {
-            let t0 = std::time::Instant::now();
-            let mut root = root.borrow_mut();
-            root.style(&Default::default());
-            root.render_children();
-            println!("styling took {:?}", t0.elapsed());
-        }
-
         Main {
+            cursor_default,
+            cursor_pointer,
+            cursor_text,
             window,
             d2d_factory,
             rt, rt_size,
             size,
-            root,
+            ctx,
         }
     }
 
     fn paint(&mut self) {
-        unsafe {
-            let mut rect = RECT::default();
-            GetClientRect(self.window, &mut rect);
-
-            let size = [
-                (rect.right - rect.left) as u32,
-                (rect.bottom - rect.top) as u32,
-            ];
-
-            let rt_size = D2D_SIZE_U { width: size[0], height: size[1] };
-            if rt_size != self.rt_size {
-                self.rt.Resize(&rt_size).unwrap();
-                self.rt_size = rt_size;
-            }
-
-
-            let mut root = self.root.borrow_mut();
-
-            let t0 = std::time::Instant::now();
-
-            root.layout(LayoutBox::tight([size[0] as f32 / 2.0, size[1] as f32]));
-            root.pos = [0.0, 0.0];
-
-            println!("layout took {:?}", t0.elapsed());
-
-            self.rt.BeginDraw();
-
-            self.rt.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
-
-            root.paint((&self.rt).into());
-
-            self.rt.EndDraw(None, None).unwrap();
-        }
     }
 }
 
@@ -166,6 +136,7 @@ pub fn main() {
                 ("background_color".into(), "ddddff".into()),
             ].into()),
         ]);
+    ctx.gui.borrow_mut().root = Some(root);
 
     unsafe {
         std::panic::set_hook(Box::new(|info| {
@@ -207,7 +178,7 @@ pub fn main() {
             None);
         assert!(window.0 != 0);
 
-        let main = RefCell::new(Main::init(window, root));
+        let main = RefCell::new(Main::init(window, ctx));
         SetWindowLongPtrW(window, GWLP_USERDATA, &main as *const _ as isize);
 
 
@@ -251,15 +222,76 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             LRESULT(0)
         },
 
+        WM_MOUSEMOVE => {
+            let x = lo_u16(lparam.0);
+            let y = hi_u16(lparam.0);
+
+            let mut gui = main.ctx.gui.borrow_mut();
+            gui.on_mouse_move(x as f32, y as f32);
+
+            LRESULT(0)
+        }
+
         WM_SIZE => {
-            let _w = lo_u16(lparam.0);
-            let _h = hi_u16(lparam.0);
+            let w = lo_u16(lparam.0);
+            let h = hi_u16(lparam.0);
+
+            let mut gui = main.ctx.gui.borrow_mut();
+            gui.set_window_size(w as f32, h as f32);
+
             InvalidateRect(window, None, false);
             LRESULT(0)
         },
 
+        WM_SETCURSOR => {
+            let gui = main.ctx.gui.borrow();
+
+            let nc_hit = lo_u16(lparam.0);
+            if nc_hit != HTCLIENT {
+                return DefWindowProcW(window, message, wparam, lparam);
+            }
+
+            if let Some(hover) = gui.hover.as_ref() {
+                let cursor = match hover.0.borrow().cursor() {
+                    Cursor::Default => main.cursor_default,
+                    Cursor::Pointer => main.cursor_pointer,
+                    Cursor::Text    => main.cursor_text,
+                };
+                SetCursor(cursor);
+
+                LRESULT(1)
+            }
+            else {
+                SetCursor(main.cursor_default);
+                LRESULT(1)
+            }
+        }
+
         WM_PAINT => {
-            main.paint();
+            let mut rect = RECT::default();
+            GetClientRect(main.window, &mut rect);
+
+            let size = [
+                (rect.right - rect.left) as u32,
+                (rect.bottom - rect.top) as u32,
+            ];
+
+            let rt_size = D2D_SIZE_U { width: size[0], height: size[1] };
+            if rt_size != main.rt_size {
+                main.rt.Resize(&rt_size).unwrap();
+                main.rt_size = rt_size;
+            }
+
+
+            main.rt.BeginDraw();
+
+            main.rt.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
+
+            let mut gui = main.ctx.gui.borrow_mut();
+            gui.paint(size[0] as f32, size[1] as f32, (&main.rt).into());
+
+            main.rt.EndDraw(None, None).unwrap();
+
             ValidateRect(window, None);
             LRESULT(0)
         },

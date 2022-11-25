@@ -6,9 +6,8 @@
         - interactivity.
 
 - present:
-    - focus, hover, tab navigation.
-        - which elements can be focused/hovered?
-            - what properties does a div need to act like a button?
+    - send hover messages.
+    - focus, tab navigation.
         - how does disabling work?
         - which elements does tab navigation consider?
     - interactivity.
@@ -26,6 +25,7 @@
 - backlog:
     - figure out layout rounding.
     - text layout:
+        - trailing whitespace.
         - automatic, lazy layout.
         - `TextFormat::effect`?
             - seems useful to put ligature handling into the text layout.

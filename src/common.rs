@@ -107,3 +107,10 @@ pub enum Layout {
     Lines,
 }
 
+
+pub enum Cursor {
+    Default,
+    Pointer,
+    Text,
+}
+
