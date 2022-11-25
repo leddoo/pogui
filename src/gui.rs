@@ -23,9 +23,16 @@ impl Gui {
     pub fn on_mouse_move(&mut self, x: f32, y: f32) {
         if self.root.is_none() { return }
 
+        // TODO: send message. but only on change.
+        if let Some(old_hover) = self.hover.as_ref() {
+            old_hover.0.borrow_mut().hover = false;
+        }
+
         let root = self.root.as_ref().unwrap();
         let hit = Element::hit_test(root, x, y, Element::pointer_events);
         if let Some((el, offset)) = hit {
+            el.borrow_mut().hover = true;
+
             println!("hit {:?}, {}", el.0.as_ptr(), offset);
             self.hover = Some((el, offset));
         }

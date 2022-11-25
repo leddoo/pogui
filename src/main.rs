@@ -229,6 +229,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             let mut gui = main.ctx.gui.borrow_mut();
             gui.on_mouse_move(x as f32, y as f32);
 
+            InvalidateRect(window, None, false);
             LRESULT(0)
         }
 

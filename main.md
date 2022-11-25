@@ -6,13 +6,14 @@
         - interactivity.
 
 - present:
-    - send hover messages.
-    - focus, tab navigation.
-        - how does disabling work?
-        - which elements does tab navigation consider?
-    - interactivity.
-        - callbacks. in some language agnostic way.
-        - tree mutation.
+    - active:
+        - assign hover on mouse down.
+        - clear on mouse up.
+    - forward mouse events to hover element.
+    - which elements can be hovered/active?
+    - tab navigation.
+    - callbacks. in some language agnostic way.
+    - tree mutation.
 
 - horizon:
     - more style:
