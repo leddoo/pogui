@@ -150,9 +150,21 @@ pub fn main() {
                 ("min_height".into(), "250".into()),
             ].into()),
             ctx.div(vec![
-                ctx.text("count: 0"),
-                ctx.button(vec![ctx.text("increment")]),
-            ]),
+                ctx.text("count: 0 "),
+                ctx.button(vec![ctx.text("increment")]).with_style([
+                    ("background_color".into(), "ffffdd".into()),
+                ].into()),
+                ctx.text(" "),
+                ctx.div(vec![
+                    ctx.div(vec![ctx.text("hi")]),
+                    ctx.div(vec![ctx.text("there")]),
+                ]).with_style([
+                    ("display".into(), "inline".into()),
+                    ("background_color".into(), "ddaadd".into()),
+                ].into()),
+            ]).with_style([
+                ("background_color".into(), "ddddff".into()),
+            ].into()),
         ]);
 
     unsafe {

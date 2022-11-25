@@ -53,6 +53,7 @@ pub struct Element {
 
     pub pos:  [f32; 2],
     size: [f32; 2],
+    baseline: f32,
 
     style: Style,
     computed_style: Style,
@@ -90,7 +91,9 @@ impl ElementRef {
 
     pub fn with_style(self, style: Style) -> Self {
         let mut this = self.borrow_mut();
-        assert!(this.kind == ElementKind::Div || this.kind == ElementKind::Span);
+        assert!(this.kind == ElementKind::Div
+            || this.kind == ElementKind::Button
+            || this.kind == ElementKind::Span);
         this.style = style;
         drop(this);
         self
@@ -133,6 +136,7 @@ impl Element {
             first_child: None, last_child: None,
             next_sibling: None, prev_sibling: None,
             pos: [0.0, 0.0], size: [0.0, 0.0],
+            baseline: 0.0,
             style: Style::new(),
             computed_style: Style::new(),
             render_children: vec![],
@@ -304,9 +308,21 @@ impl Element {
                             max_width = max_width.max(child.max_width());
                         }
 
-                        RenderElement::Text { pos: _, layout: _, objects: _ } => {
-                            // TODO.
-                            unimplemented!();
+                        RenderElement::Text { pos: _, layout, objects } => {
+                            // TODO: duplicated. also, want to cache.
+                            for (i, obj) in objects.iter().enumerate() {
+                                let mut o = obj.borrow_mut();
+                                o.layout(LayoutBox::any());
+
+                                layout.set_object_size(i, o.size);
+                                layout.set_object_baseline(i, o.baseline);
+                            }
+
+                            // TODO: dedicated max_width.
+                            layout.set_layout_width(f32::INFINITY);
+                            layout.layout();
+
+                            max_width = max_width.max(layout.actual_size()[0]);
                         }
                     }
                 }
@@ -349,7 +365,7 @@ impl Element {
                                         o.layout(LayoutBox::any());
 
                                         layout.set_object_size(i, o.size);
-                                        layout.set_object_baseline(i, o.size[1]);
+                                        layout.set_object_baseline(i, o.baseline);
                                     }
 
                                     // TODO: dedicated max_width.
@@ -365,6 +381,8 @@ impl Element {
                         max_width
                     }
                 };
+
+                let mut last_baseline = 0.0;
 
                 let mut cursor = 0.0;
                 for child in &mut self.render_children {
@@ -434,6 +452,8 @@ impl Element {
                             let height = child.size[1];
                             child.pos = [0.0, cursor];
                             cursor += height;
+
+                            last_baseline = cursor - child.baseline;
                         }
 
                         RenderElement::Text { pos, layout, objects } => {
@@ -442,19 +462,19 @@ impl Element {
                                 o.layout(LayoutBox::any());
 
                                 layout.set_object_size(i, o.size);
-                                layout.set_object_baseline(i, o.size[1]);
+                                layout.set_object_baseline(i, o.baseline);
                             }
 
                             layout.set_layout_width(this_width);
                             layout.layout();
 
                             for (i, obj) in objects.iter().enumerate() {
-                                // TODO: object positions relative to their top left?
-                                // instead of baseline.
                                 let mut o = obj.borrow_mut();
                                 o.pos = layout.get_object_pos(i);
-                                o.pos[1] -= o.size[1];
                             }
+
+                            let last_line = layout.line_metrics(layout.line_count() - 1);
+                            last_baseline = cursor + last_line.pos[1] + last_line.baseline;
 
                             let height = layout.actual_size()[1];
                             *pos = [0.0, cursor];
@@ -463,8 +483,9 @@ impl Element {
                     }
                 }
 
-                let height = lbox.clamp_height(cursor);
+                let height = lbox.clamp_height(cursor.ceil());
                 self.size = [this_width, height];
+                self.baseline = cursor - last_baseline;
             }
         }
     }
@@ -478,21 +499,6 @@ impl Element {
     pub fn paint(&mut self, rt: &ID2D1RenderTarget) {
         assert!(self.kind == ElementKind::Div
             || self.kind == ElementKind::Button);
-
-        if self.kind == ElementKind::Button {
-            unsafe {
-                let color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-                let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
-
-                let rect = D2D_RECT_F {
-                    left:   self.pos[0].round(),
-                    top:    self.pos[1].round(),
-                    right:  (self.pos[0] + self.size[0]).round(),
-                    bottom: (self.pos[1] + self.size[1]).round(),
-                };
-                rt.DrawRectangle(&rect, &brush, 2.0, None);
-            }
-        }
 
         if let Some(color) = self.computed_style.get("background_color") {
             assert!(color.len() == 6);
@@ -512,6 +518,21 @@ impl Element {
                     bottom: (self.pos[1] + self.size[1]).round(),
                 };
                 rt.FillRectangle(&rect, &brush);
+            }
+        }
+
+        if self.kind == ElementKind::Button {
+            unsafe {
+                let color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+                let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
+
+                let rect = D2D_RECT_F {
+                    left:   self.pos[0].round() + 0.5,
+                    top:    self.pos[1].round() + 0.5,
+                    right:  (self.pos[0] + self.size[0]).round() - 0.5,
+                    bottom: (self.pos[1] + self.size[1]).round() - 0.5,
+                };
+                rt.DrawRectangle(&rect, &brush, 1.0, None);
             }
         }
 

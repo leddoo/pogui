@@ -81,6 +81,7 @@ struct VisualLine {
 
     spans: Vec<VisualSpan>,
 
+    y: f32,
     width:    f32,
     height:   f32,
     baseline: f32,
@@ -177,8 +178,8 @@ impl TextLayout {
             if span.object_index != u32::MAX {
                 let object = &self.objects[span.object_index as usize];
                 span.width  = object.size[0];
-                span.ascent = object.baseline;
-                span.drop   = object.size[1] - object.baseline;
+                span.ascent = object.size[1] - object.baseline;
+                span.drop   = object.baseline;
             }
         }
 
@@ -202,6 +203,7 @@ impl TextLayout {
                     text_begin_utf8,
                     text_end_utf8,
                     spans: vec![],
+                    y: 0.0,
                     width: 0.0,
                     height:   span.ascent + span.drop,
                     baseline: span.ascent,
@@ -243,14 +245,18 @@ impl TextLayout {
             let mut max_width = 0.0f32;
             let mut height = 0.0;
 
-            for line in &self.lines {
+            for line in &mut self.lines {
+                line.y = height;
+
                 let mut x = 0.0;
                 let y = height + line.baseline;
 
                 for span in &line.spans {
                     let object_index = self.spans[span.span_index as usize].object_index;
                     if object_index != u32::MAX {
-                        self.objects[object_index as usize].pos = [x, y];
+                        let object = &mut self.objects[object_index as usize];
+                        let y = y - (object.size[1] - object.baseline);
+                        object.pos = [x, y];
                     }
 
                     x += span.width;
@@ -277,6 +283,30 @@ impl TextLayout {
 
 
 #[derive(Clone, Copy, Debug)]
+pub struct LineMetrics {
+    pub text_begin: u32,
+    pub text_end:   u32,
+    pub pos:      [f32; 2],
+    pub size:     [f32; 2],
+    pub baseline: f32,
+}
+
+impl TextLayout {
+    #[inline]
+    pub fn line_metrics(&self, line_index: usize) -> LineMetrics {
+        let line = &self.lines[line_index];
+        LineMetrics {
+            text_begin: line.text_begin_utf8,
+            text_end:   line.text_end_utf8,
+            pos:  [0.0, line.y],
+            size: [line.width, line.height],
+            baseline: line.baseline,
+        }
+    }
+}
+
+
+#[derive(Clone, Copy, Debug)]
 pub struct PosMetrics {
     pub x: f32,
     pub y: f32,
@@ -290,9 +320,9 @@ impl TextLayout {
     pub fn hit_test_offset(&self, offset: usize) -> PosMetrics {
         let offset = offset.min(self.text.len()) as u32;
 
-        let mut y = 0.0;
-
         for (line_index, line) in self.lines.iter().enumerate() {
+            let y = line.y;
+
             // end inclusive (that's the \n).
             if offset >= line.text_begin_utf8 && offset <= line.text_end_utf8 {
                 let mut x = 0.0;
@@ -328,8 +358,6 @@ impl TextLayout {
                     line_index,
                 };
             }
-
-            y += line.height;
         }
 
         assert_eq!(self.text.len(), 0);
@@ -440,15 +468,13 @@ impl TextLayout {
             return result;
         }
 
-        let mut cursor = 0.0;
         for (line_index, line) in self.lines.iter().enumerate() {
-            let new_cursor = cursor + line.height;
+            let y0 = line.y;
+            let y1 = line.y + line.height;
 
-            if y >= cursor && y < new_cursor {
+            if y >= y0 && y < y1 {
                 return self.hit_test_line(line_index, x);
             }
-
-            cursor = new_cursor;
         }
 
         // below.
@@ -482,10 +508,10 @@ impl TextLayout {
         let rng_begin = begin as u32;
         let rng_end   = end   as u32;
 
-        let mut y = 0.0;
         for line in &self.lines {
+            let y = line.y;
+
             if rng_begin >= line.text_end_utf8 || rng_end <= line.text_begin_utf8 {
-                y += line.height;
                 continue;
             }
 
@@ -542,8 +568,6 @@ impl TextLayout {
             }
 
             // TODO: return a rect for the \n, if selected.
-
-            y += line.height;
         }
     }
 }
@@ -593,7 +617,6 @@ pub trait TextRenderer {
 
 impl TextLayout {
     pub fn draw<Renderer: TextRenderer>(&self, offset: [f32; 2], renderer: &Renderer) {
-        let mut cursor = offset[1];
         for line in &self.lines {
             let mut x = offset[0];
             for vspan in &line.spans {
@@ -604,7 +627,7 @@ impl TextLayout {
                     continue;
                 }
 
-                let y = cursor + line.baseline;
+                let y = (line.y + line.baseline) + offset[1];
 
                 if tspan.object_index != u32::MAX {
                     let object = &self.objects[tspan.object_index as usize];
@@ -673,8 +696,6 @@ impl TextLayout {
 
                 x += vspan.width;
             }
-
-            cursor += line.height;
         }
     }
 }
@@ -1638,6 +1659,7 @@ impl LineBreaker {
             text_begin_utf8: text_begin,
             text_end_utf8:   text_end,
             spans,
+            y: 0.0,
             width, height, baseline,
         });
 
