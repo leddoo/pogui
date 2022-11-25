@@ -1,15 +1,10 @@
 - focus:
-    - classic counter.
-        - styling is important, but core functionality is more important.
-        - button element.
-        - focus, hover, tab navigation.
-        - interactivity.
+    - ?
 
 - present:
-    - button click callback.
-        - when mouse is released while hovered & active.
-        - in some language agnostic way.
-    - tree mutation.
+    - review & plan.
+    - element memory management.
+        - strong & weak refs.
     - which elements can be hovered/active?
     - tab navigation.
 

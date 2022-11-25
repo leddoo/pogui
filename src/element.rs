@@ -5,6 +5,7 @@ use crate::win::*;
 use crate::ctx::*;
 use crate::common::*;
 use crate::text::*;
+use crate::gui::Gui;
 
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -40,30 +41,34 @@ impl ElementKind {
 
 
 pub struct Element {
-    kind: ElementKind,
+    pub kind: ElementKind,
 
-    ctx: Ctx,
+    pub ctx: Ctx,
 
-    this:         Option<ElementRef>,
-    parent:       Option<ElementRef>,
-    first_child:  Option<ElementRef>,
-    last_child:   Option<ElementRef>,
-    next_sibling: Option<ElementRef>,
-    prev_sibling: Option<ElementRef>,
+    pub this:         Option<ElementRef>,
+    pub parent:       Option<ElementRef>,
+    pub first_child:  Option<ElementRef>,
+    pub last_child:   Option<ElementRef>,
+    pub next_sibling: Option<ElementRef>,
+    pub prev_sibling: Option<ElementRef>,
+
+    pub id: String,
 
     pub pos:  [f32; 2],
-    size: [f32; 2],
-    baseline: f32,
+    pub size: [f32; 2],
+    pub baseline: f32,
 
     pub hover:  bool,
     pub active: bool,
 
-    style: Style,
-    computed_style: Style,
+    pub style: Style,
+    pub computed_style: Style,
 
     render_children: Vec<RenderElement>,
 
-    text: String,
+    pub text: String,
+
+    pub on_click: Option<EventHandler>,
 }
 
 
@@ -98,6 +103,24 @@ impl ElementRef {
             || this.kind == ElementKind::Button
             || this.kind == ElementKind::Span);
         this.style = style;
+        drop(this);
+        self
+    }
+
+    pub fn with_on_click(self, on_click: EventHandler) -> Self {
+        let mut this = self.borrow_mut();
+        assert!(this.kind == ElementKind::Button);
+        this.on_click = Some(on_click);
+        drop(this);
+        self
+    }
+
+    pub fn with_id(self, id: String) -> Self {
+        let mut this = self.borrow_mut();
+        assert!(this.kind == ElementKind::Div
+            || this.kind == ElementKind::Button
+            || this.kind == ElementKind::Span);
+        this.id = id;
         drop(this);
         self
     }
@@ -138,6 +161,7 @@ impl Element {
             parent: None,
             first_child: None, last_child: None,
             next_sibling: None, prev_sibling: None,
+            id: "".into(),
             pos: [0.0, 0.0], size: [0.0, 0.0],
             baseline: 0.0,
             hover: false,
@@ -146,6 +170,7 @@ impl Element {
             computed_style: Style::new(),
             render_children: vec![],
             text: String::new(),
+            on_click: None,
         }
     }
 
@@ -155,6 +180,44 @@ impl Element {
             f(&child);
             at = child.borrow().next_sibling.clone();
         }
+    }
+}
+
+
+
+// TREE STRUCTURE
+
+impl Element {
+    pub fn set_children(this: &ElementRef, children: Vec<ElementRef>) {
+        // TODO: remove old children.
+        // and free memory if no more strong refs.
+
+        let mut first_child = None;
+        let mut prev_child: Option<ElementRef> = None;
+        for child in children {
+            child.borrow_mut().parent = Some(this.clone());
+
+            if let Some(prev) = prev_child {
+                prev.borrow_mut().next_sibling  = Some(child.clone());
+                child.borrow_mut().prev_sibling = Some(prev);
+                prev_child = Some(child);
+            }
+            else {
+                child.borrow_mut().prev_sibling = None;
+                first_child = Some(child.clone());
+                prev_child  = Some(child);
+            }
+        }
+        if let Some(last_child) = &prev_child {
+            last_child.borrow_mut().next_sibling = None;
+        }
+
+        let this_ref = this.clone();
+        this.borrow_mut_with(|this| {
+            this.this = Some(this_ref);
+            this.first_child = first_child;
+            this.last_child  = prev_child;
+        });
     }
 }
 
@@ -598,11 +661,14 @@ impl Element {
         println!("{:?} mouse down", self as *const _);
     }
 
-    pub fn on_mouse_up(&mut self) {
+    pub fn on_mouse_up(&mut self, gui: &mut Gui) {
         println!("{:?} mouse up", self as *const _);
 
         if self.kind == ElementKind::Button && self.active {
-            println!("clicked!");
+            if let Some(handler) = self.on_click.as_mut() {
+                let mut event = Event {};
+                handler(self.ctx, gui, &mut event);
+            }
         }
     }
 
@@ -611,6 +677,12 @@ impl Element {
         //println!("{:?} mouse move {} {}", self as *const _, x, y);
     }
 }
+
+
+pub struct Event {
+}
+
+pub type EventHandler = Box<dyn FnMut(Ctx, &mut Gui, &mut Event)>;
 
 
 

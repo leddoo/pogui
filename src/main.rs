@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 mod win;
 mod unicode;
@@ -14,6 +15,7 @@ mod element;
 use crate::win::*;
 use crate::ctx::*;
 use crate::common::Cursor;
+use crate::element::Element;
 
 
 
@@ -72,13 +74,12 @@ impl Main {
             ctx,
         }
     }
-
-    fn paint(&mut self) {
-    }
 }
 
 pub fn main() {
     let ctx = Ctx::new();
+
+    let state = Rc::new(Cell::new(1));
 
     let root =
         ctx.div(vec![
@@ -120,10 +121,17 @@ pub fn main() {
                 ("min_height".into(), "250".into()),
             ].into()),
             ctx.div(vec![
-                ctx.text("count: 0 "),
+                ctx.text("count: "),
+                ctx.span(vec![ctx.text(state.get().to_string())]).with_id("state_span".into()),
+                ctx.text(" "),
                 ctx.button(vec![ctx.text("increment")]).with_style([
                     ("background_color".into(), "ffffdd".into()),
-                ].into()),
+                ].into()).with_on_click(Box::new({ let state = state.clone(); move |ctx, gui, _e| {
+                    state.set(state.get() + 1);
+
+                    let span = gui.get_element("state_span").unwrap();
+                    Element::set_children(&span, vec![ctx.text(state.get().to_string())]);
+                }})),
                 ctx.text(" "),
                 ctx.div(vec![
                     ctx.div(vec![ctx.text("hi")]),

@@ -79,9 +79,9 @@ impl Gui {
     }
 
     pub fn on_mouse_up(&mut self) {
-        if let Some(hover) = self.hover.as_ref() {
+        if let Some(hover) = self.hover.clone() {
             let mut h = hover.borrow_mut();
-            h.on_mouse_up();
+            h.on_mouse_up(self);
         }
 
         if let Some(old) = self.active.as_ref() {
@@ -101,6 +101,7 @@ impl Gui {
             return
         }
 
+        /*
         let mut root = self.root.as_ref().unwrap().borrow_mut();
         // TEMP
         if self.window_size == [0.0, 0.0] {
@@ -113,6 +114,7 @@ impl Gui {
         let t0 = std::time::Instant::now();
         root.layout(LayoutBox::tight([w/2.0, h]));
         println!("layout {:?}", t0.elapsed());
+        */
 
         self.window_size = new_size;
     }
@@ -122,8 +124,36 @@ impl Gui {
 
         self.set_window_size(w, h);
 
+        // TEMP
         let mut root = self.root.as_ref().unwrap().borrow_mut();
+        root.style(&Style::new());
+        root.render_children();
+        root.layout(LayoutBox::tight([w/2.0, h]));
         root.paint(rt);
+    }
+
+
+    pub fn get_element(&self, id: &str) -> Option<ElementRef> {
+        if self.root.is_none() { return None }
+
+        fn recurse(this: &ElementRef, id: &str) -> Option<ElementRef> {
+            let me = this.borrow();
+            if me.id == id {
+                return Some(this.clone());
+            }
+
+            let mut at = me.first_child.clone();
+            while let Some(child) = at {
+                let result = recurse(&child, id);
+                if result.is_some() {
+                    return result;
+                }
+
+                at = child.borrow().next_sibling.clone();
+            }
+            None
+        }
+        recurse(self.root.as_ref().unwrap(), id)
     }
 }
 
