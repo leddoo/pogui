@@ -1,10 +1,26 @@
 - focus:
-    - ?
+    - initial api.
 
 - present:
-    - review & plan.
-    - element memory management.
-        - strong & weak refs.
+    - clean up:
+        - node data array & generational node handles.
+    - design api.
+        - tree mutation.
+            - insert before/after /_child?
+            - remove/_child.
+            - append.
+            - clear children.
+            - the _child variants would be for error detection.
+        - event handlers.
+            - add handler: handler -> handler weak ref.
+            - remove handler.
+        - per-element styling.
+            - set/get.
+    - more style props.
+        - font family/style.
+        - corners.
+        - borders.
+        - shadows.
     - which elements can be hovered/active?
     - tab navigation.
 

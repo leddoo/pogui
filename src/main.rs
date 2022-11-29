@@ -14,8 +14,7 @@ mod element;
 
 use crate::win::*;
 use crate::ctx::*;
-use crate::common::Cursor;
-use crate::element::Element;
+use crate::gui::*;
 
 
 
@@ -35,10 +34,11 @@ struct Main {
     size: [u32; 2],
 
     ctx: Ctx,
+    gui: Gui,
 }
 
 impl Main {
-    unsafe fn init(window: HWND, ctx: Ctx) -> Main {
+    unsafe fn init(window: HWND, ctx: Ctx, gui: Gui) -> Main {
         let cursor_default = LoadCursorW(None, IDC_ARROW).unwrap();
         let cursor_pointer = LoadCursorW(None, IDC_HAND).unwrap();
         let cursor_text    = LoadCursorW(None, IDC_IBEAM).unwrap();
@@ -72,6 +72,7 @@ impl Main {
             rt, rt_size,
             size,
             ctx,
+            gui,
         }
     }
 }
@@ -81,70 +82,105 @@ pub fn main() {
 
     let state = Rc::new(Cell::new(1));
 
-    let root =
-        ctx.div(vec![
-            ctx.text("hello, "),
-            ctx.text("weirdo!"),
-            ctx.div(vec![
-                ctx.text("new line cause div"),
-                ctx.div(vec![
-                    ctx.text("div in div with inherited text color."),
-                    ctx.div(vec![
-                        ctx.text("ADivInADivInADiv"),
-                    ]),
-                ]).with_style([
-                    ("min_width".into(), "190".into()),
-                    ("max_width".into(), "400".into()),
-                    ("min_height".into(), "70".into()),
-                    ("max_height".into(), "100".into()),
-                    ("background_color".into(), "d040a0".into()),
-                ].into()),
-                ctx.div(vec![]).with_style([
-                    ("width".into(),  "50".into()),
-                    ("height".into(), "50".into()),
-                    ("background_color".into(), "807060".into()),
-                ].into()),
-                ctx.div(vec![
-                    ctx.text("nested div with a "),
-                    ctx.span(vec![ctx.text("different")]).with_style([
-                        ("text_color".into(), "40b040".into()),
-                    ].into()),
-                    ctx.text(" text color."),
-                ]).with_style([
-                    ("text_color".into(), "306080".into()),
-                ].into()),
-                ctx.text("more of the outer div"),
-            ]).with_style([
-                ("font_size".into(), "69".into()),
-                ("text_color".into(), "802020".into()),
-                ("background_color".into(), "eeeeff".into()),
-                ("min_height".into(), "250".into()),
-            ].into()),
-            ctx.div(vec![
-                ctx.text("count: "),
-                ctx.span(vec![ctx.text(state.get().to_string())]).with_id("state_span".into()),
-                ctx.text(" "),
-                ctx.button(vec![ctx.text("increment")]).with_style([
-                    ("background_color".into(), "ffffdd".into()),
-                ].into()).with_on_click(Box::new({ let state = state.clone(); move |ctx, gui, _e| {
-                    state.set(state.get() + 1);
+    let mut gui = Gui::new(ctx);
 
-                    let span = gui.get_element("state_span").unwrap();
-                    Element::set_children(&span, vec![ctx.text(state.get().to_string())]);
-                }})),
-                ctx.text(" "),
-                ctx.div(vec![
-                    ctx.div(vec![ctx.text("hi")]),
-                    ctx.div(vec![ctx.text("there")]),
-                ]).with_style([
-                    ("display".into(), "inline".into()),
-                    ("background_color".into(), "ddaadd".into()),
-                ].into()),
-            ]).with_style([
-                ("background_color".into(), "ddddff".into()),
-            ].into()),
-        ]);
-    ctx.gui.borrow_mut().root = Some(root);
+    fn mk_node<C: IntoIterator<Item=Node>>(kind: NodeKind, children: C, style: &[(&str, &str)], gui: &mut Gui) -> Node {
+        let node = gui.create_node(kind);
+        gui.set_children(node, children.into_iter());
+        gui.set_style(node, style.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+        node
+    }
+
+    fn div<C: IntoIterator<Item=Node>>(children: C, style: &[(&str, &str)], gui: &mut Gui) -> Node {
+        mk_node(NodeKind::Div, children, style, gui)
+    }
+
+    fn span<C: IntoIterator<Item=Node>>(children: C, style: &[(&str, &str)], gui: &mut Gui) -> Node {
+        mk_node(NodeKind::Span, children, style, gui)
+    }
+
+    fn text(value: &str, gui: &mut Gui) -> Node {
+        gui.create_text(value)
+    }
+
+    fn button<C: IntoIterator<Item=Node>, H: FnMut(&mut Gui, &mut Event) + 'static>(children: C, style: &[(&str, &str)], on_click: H, gui: &mut Gui) -> Node {
+        let node = mk_node(NodeKind::Button, children, style, gui);
+        gui.set_on_click(node, on_click);
+        node
+    }
+
+    let g = &mut gui;
+
+    let the_text = text(&state.get().to_string(), g);
+
+    let root =
+        div([
+            text("hello, ", g),
+            text("weirdo!", g),
+            div([
+                text("new line cause div", g),
+                div([
+                    text("div in div with inherited text color.", g),
+                    div([
+                        text("ADivInADivInADiv", g),
+                    ], &[], g),
+                ], &[
+                    ("min_width", "190"),
+                    ("max_width", "400"),
+                    ("min_height", "70"),
+                    ("max_height", "100"),
+                    ("background_color", "d040a0"),
+                ], g),
+                div([], &[
+                    ("width",  "50"),
+                    ("height", "50"),
+                    ("background_color", "807060"),
+                ], g),
+                div([
+                    text("nested div with a ", g),
+                    span([text("different", g)], &[
+                        ("text_color", "40b040"),
+                    ], g),
+                    text(" text color.", g),
+                ], &[
+                    ("text_color", "306080"),
+                ], g),
+                text("more of the outer div", g),
+            ], &[
+                ("font_size", "69"),
+                ("text_color", "802020"),
+                ("background_color", "eeeeff"),
+                ("min_height", "250"),
+            ], g),
+            div([
+                text("count: ", g),
+                the_text,
+                text(" ", g),
+                button([text("increment", g)], &[
+                    ("background_color", "ffffdd"),
+                ], { let state = state.clone(); move |gui: &mut Gui, _e| {
+                    state.set(state.get() + 1);
+                    gui.set_text(the_text, state.get().to_string());
+                }}, g),
+                text(" ", g),
+                div([
+                    div([text("hi", g)], &[], g),
+                    div([text("there", g)], &[], g),
+                ], &[
+                    ("display", "inline"),
+                    ("background_color", "ddaadd"),
+                ], g),
+            ], &[
+                ("background_color", "ddddff"),
+            ], g),
+        ], &[], g);
+    gui.root = Some(
+        unsafe {
+            let r = Rc::from_raw(root.0);
+            let result = crate::element::ElementRef(r.clone());
+            core::mem::forget(r);
+            result
+        });
 
     unsafe {
         std::panic::set_hook(Box::new(|info| {
@@ -186,7 +222,7 @@ pub fn main() {
             None);
         assert!(window.0 != 0);
 
-        let main = RefCell::new(Main::init(window, ctx));
+        let main = RefCell::new(Main::init(window, ctx, gui));
         SetWindowLongPtrW(window, GWLP_USERDATA, &main as *const _ as isize);
 
 
@@ -231,16 +267,14 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
         },
 
         WM_LBUTTONDOWN => {
-            let mut gui = main.ctx.gui.borrow_mut();
-            gui.on_mouse_down();
+            main.gui.on_mouse_down();
 
             InvalidateRect(window, None, false);
             LRESULT(0)
         }
 
         WM_LBUTTONUP => {
-            let mut gui = main.ctx.gui.borrow_mut();
-            gui.on_mouse_up();
+            main.gui.on_mouse_up();
 
             InvalidateRect(window, None, false);
             LRESULT(0)
@@ -250,8 +284,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             let x = lo_u16(lparam.0);
             let y = hi_u16(lparam.0);
 
-            let mut gui = main.ctx.gui.borrow_mut();
-            gui.on_mouse_move(x as f32, y as f32);
+            main.gui.on_mouse_move(x as f32, y as f32);
 
             InvalidateRect(window, None, false);
             LRESULT(0)
@@ -261,35 +294,25 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             let w = lo_u16(lparam.0);
             let h = hi_u16(lparam.0);
 
-            let mut gui = main.ctx.gui.borrow_mut();
-            gui.set_window_size(w as f32, h as f32);
+            main.gui.set_window_size(w as f32, h as f32);
 
             InvalidateRect(window, None, false);
             LRESULT(0)
         },
 
         WM_SETCURSOR => {
-            let gui = main.ctx.gui.borrow();
-
             let nc_hit = lo_u16(lparam.0);
             if nc_hit != HTCLIENT {
                 return DefWindowProcW(window, message, wparam, lparam);
             }
 
-            if let Some(hover) = gui.hover.as_ref() {
-                let cursor = match hover.0.borrow().cursor() {
-                    Cursor::Default => main.cursor_default,
-                    Cursor::Pointer => main.cursor_pointer,
-                    Cursor::Text    => main.cursor_text,
-                };
-                SetCursor(cursor);
-
-                LRESULT(1)
-            }
-            else {
-                SetCursor(main.cursor_default);
-                LRESULT(1)
-            }
+            let cursor = match main.gui.get_cursor() {
+                Cursor::Default => main.cursor_default,
+                Cursor::Pointer => main.cursor_pointer,
+                Cursor::Text    => main.cursor_text,
+            };
+            SetCursor(cursor);
+            LRESULT(1)
         }
 
         WM_PAINT => {
@@ -307,13 +330,14 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                 main.rt_size = rt_size;
             }
 
+            let main = &mut *main;
 
             main.rt.BeginDraw();
 
             main.rt.Clear(Some(&D2D1_COLOR_F { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
 
-            let mut gui = main.ctx.gui.borrow_mut();
-            gui.paint(size[0] as f32, size[1] as f32, (&main.rt).into());
+            main.gui.set_window_size(size[0] as f32, size[1] as f32);
+            main.gui.paint((&main.rt).into());
 
             main.rt.EndDraw(None, None).unwrap();
 

@@ -2,7 +2,6 @@ use core::cell::RefCell;
 
 use crate::win::*;
 use crate::text::*;
-use crate::gui::Gui;
 
 
 pub struct CtxData {
@@ -11,7 +10,6 @@ pub struct CtxData {
     pub dw_system_fallback: IDWriteFontFallback,
 
     pub fonts: RefCell<Fonts>,
-    pub gui: RefCell<Gui>,
 }
 
 
@@ -31,7 +29,6 @@ impl Ctx {
             dw_system_fallback: dw_factory.GetSystemFontFallback().unwrap(),
 
             fonts: RefCell::new(Fonts::new()),
-            gui: RefCell::new(Gui::new()),
         })));
 
         // TODO: how to set up default font?

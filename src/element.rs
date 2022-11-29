@@ -5,21 +5,13 @@ use crate::win::*;
 use crate::ctx::*;
 use crate::common::*;
 use crate::text::*;
-use crate::gui::Gui;
+use crate::gui::*;
 
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum ElementKind {
-    Div,
-    Button,
-    Span,
-    Text,
-}
-
-impl ElementKind {
+impl NodeKind {
     #[inline]
     pub const fn is_container(self) -> bool {
-        use ElementKind::*;
+        use NodeKind::*;
         match self {
             Div | Button => true,
             Span | Text => false,
@@ -28,7 +20,7 @@ impl ElementKind {
 
     #[inline]
     pub const fn default_display(self) -> Display {
-        use ElementKind::*;
+        use NodeKind::*;
         use Display::*;
         match self {
             Div     => Block,
@@ -41,9 +33,7 @@ impl ElementKind {
 
 
 pub struct Element {
-    pub kind: ElementKind,
-
-    pub ctx: Ctx,
+    pub kind: NodeKind,
 
     pub this:         Option<ElementRef>,
     pub parent:       Option<ElementRef>,
@@ -51,8 +41,6 @@ pub struct Element {
     pub last_child:   Option<ElementRef>,
     pub next_sibling: Option<ElementRef>,
     pub prev_sibling: Option<ElementRef>,
-
-    pub id: String,
 
     pub pos:  [f32; 2],
     pub size: [f32; 2],
@@ -68,7 +56,7 @@ pub struct Element {
 
     pub text: String,
 
-    pub on_click: Option<EventHandler>,
+    pub on_click: Option<Box<dyn EventHandler>>,
 }
 
 
@@ -97,32 +85,24 @@ impl ElementRef {
         f(&mut self.0.borrow_mut())
     }
 
-    pub fn with_style(self, style: Style) -> Self {
+    pub fn set_style(&self, style: Style) {
         let mut this = self.borrow_mut();
-        assert!(this.kind == ElementKind::Div
-            || this.kind == ElementKind::Button
-            || this.kind == ElementKind::Span);
+        assert!(this.kind == NodeKind::Div
+            || this.kind == NodeKind::Button
+            || this.kind == NodeKind::Span);
         this.style = style;
-        drop(this);
-        self
     }
 
-    pub fn with_on_click(self, on_click: EventHandler) -> Self {
+    pub fn set_text(&self, text: String) {
         let mut this = self.borrow_mut();
-        assert!(this.kind == ElementKind::Button);
+        assert!(this.kind == NodeKind::Text);
+        this.text = text;
+    }
+
+    pub fn set_on_click(&self, on_click: Box<dyn EventHandler>) {
+        let mut this = self.borrow_mut();
+        assert!(this.kind == NodeKind::Button);
         this.on_click = Some(on_click);
-        drop(this);
-        self
-    }
-
-    pub fn with_id(self, id: String) -> Self {
-        let mut this = self.borrow_mut();
-        assert!(this.kind == ElementKind::Div
-            || this.kind == ElementKind::Button
-            || this.kind == ElementKind::Span);
-        this.id = id;
-        drop(this);
-        self
     }
 }
 
@@ -154,14 +134,13 @@ enum RenderElement {
 
 
 impl Element {
-    pub fn new(kind: ElementKind, ctx: Ctx) -> Element {
+    pub fn new(kind: NodeKind) -> Element {
         Element {
-            kind, ctx,
+            kind,
             this: None,
             parent: None,
             first_child: None, last_child: None,
             next_sibling: None, prev_sibling: None,
-            id: "".into(),
             pos: [0.0, 0.0], size: [0.0, 0.0],
             baseline: 0.0,
             hover: false,
@@ -255,7 +234,7 @@ impl Element {
         })
     }
 
-    pub fn render_children(&mut self) {
+    pub fn render_children(&mut self, ctx: Ctx) {
         struct ChildRenderer<'a> {
             ctx: Ctx,
             children: &'a mut Vec<RenderElement>,
@@ -298,7 +277,7 @@ impl Element {
             fn visit(&mut self, el: &ElementRef) {
                 let mut e = el.borrow_mut();
 
-                if e.kind == ElementKind::Text {
+                if e.kind == NodeKind::Text {
                     self.builder.add_string(&e.text);
                     return;
                 }
@@ -308,7 +287,7 @@ impl Element {
 
                     Display::Inline => {
                         if e.kind.is_container() {
-                            e.render_children();
+                            e.render_children(self.ctx);
                             self.builder.add_object();
                             self.objects.push(el.clone());
                         }
@@ -322,7 +301,7 @@ impl Element {
                     }
 
                     Display::Block => {
-                        e.render_children();
+                        e.render_children(self.ctx);
                         self.flush();
                         self.children.push(RenderElement::Element { ptr: el.clone() });
                     }
@@ -333,15 +312,15 @@ impl Element {
         self.render_children.clear();
 
         let format = TextFormat {
-            font: self.ctx.font_query("Roboto").unwrap(),
+            font: ctx.font_query("Roboto").unwrap(),
             font_size: 24.0,
             ..Default::default()
         };
 
         let mut cr = ChildRenderer {
-            ctx: self.ctx,
+            ctx,
             children: &mut self.render_children,
-            builder: TextLayoutBuilder::new(self.ctx, format),
+            builder: TextLayoutBuilder::new(ctx, format),
             objects: vec![],
         };
 
@@ -359,7 +338,7 @@ impl Element {
 
 impl Element {
     pub fn max_width(&mut self) -> f32 {
-        assert!(self.kind == ElementKind::Div);
+        assert!(self.kind == NodeKind::Div);
 
         let layout = Layout::Lines;
         match layout {
@@ -406,8 +385,8 @@ impl Element {
     }
 
     pub fn layout(&mut self, lbox: LayoutBox) {
-        assert!(self.kind == ElementKind::Div
-            || self.kind == ElementKind::Button);
+        assert!(self.kind == NodeKind::Div
+            || self.kind == NodeKind::Button);
 
         let layout = Layout::Lines;
         match layout {
@@ -566,8 +545,8 @@ impl Element {
 impl Element {
     pub fn hit_test<P: Fn(&Element) -> bool + Copy>(this: &ElementRef, x: f32, y: f32, p: P) -> Option<(ElementRef, usize)> {
         let me = this.borrow();
-        assert!(me.kind == ElementKind::Div
-            ||  me.kind == ElementKind::Button);
+        assert!(me.kind == NodeKind::Div
+            ||  me.kind == NodeKind::Button);
 
         let x = x - me.pos[0];
         let y = y - me.pos[1];
@@ -634,8 +613,8 @@ impl Element {
 
     pub fn cursor(&self) -> Cursor {
         match self.kind {
-            ElementKind::Button => Cursor::Pointer,
-            ElementKind::Text   => Cursor::Text,
+            NodeKind::Button => Cursor::Pointer,
+            NodeKind::Text   => Cursor::Text,
 
             _ => Cursor::Default,
         }
@@ -664,10 +643,10 @@ impl Element {
     pub fn on_mouse_up(&mut self, gui: &mut Gui) {
         println!("{:?} mouse up", self as *const _);
 
-        if self.kind == ElementKind::Button && self.active {
+        if self.kind == NodeKind::Button && self.active {
             if let Some(handler) = self.on_click.as_mut() {
                 let mut event = Event {};
-                handler(self.ctx, gui, &mut event);
+                handler(gui, &mut event);
             }
         }
     }
@@ -679,19 +658,13 @@ impl Element {
 }
 
 
-pub struct Event {
-}
-
-pub type EventHandler = Box<dyn FnMut(Ctx, &mut Gui, &mut Event)>;
-
-
 
 // PAINT
 
 impl Element {
     pub fn paint(&mut self, rt: &ID2D1RenderTarget) {
-        assert!(self.kind == ElementKind::Div
-            || self.kind == ElementKind::Button);
+        assert!(self.kind == NodeKind::Div
+            || self.kind == NodeKind::Button);
 
         if let Some(color) = self.computed_style.get("background_color") {
             assert!(color.len() == 6);
@@ -714,7 +687,7 @@ impl Element {
             }
         }
 
-        if self.kind == ElementKind::Button {
+        if self.kind == NodeKind::Button {
             unsafe {
                 let mut color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
                 if self.hover && self.active {
@@ -824,7 +797,7 @@ impl Element {
 
 
 impl Ctx {
-    pub fn to_ref(self, element: Element, children: Vec<ElementRef>) -> ElementRef {
+    pub fn to_ref(element: Element, children: Vec<ElementRef>) -> ElementRef {
         let this = ElementRef(Rc::new(RefCell::new(element)));
 
         let mut first_child = None;
@@ -855,24 +828,6 @@ impl Ctx {
         });
 
         this
-    }
-
-    pub fn div(self, children: Vec<ElementRef>) -> ElementRef {
-        self.to_ref(Element::new(ElementKind::Div, self), children)
-    }
-
-    pub fn span(self, children: Vec<ElementRef>) -> ElementRef {
-        self.to_ref(Element::new(ElementKind::Span, self), children)
-    }
-
-    pub fn text<Str: Into<String>>(self, value: Str) -> ElementRef {
-        let mut result = Element::new(ElementKind::Text, self);
-        result.text = value.into();
-        self.to_ref(result, vec![])
-    }
-
-    pub fn button(self, children: Vec<ElementRef>) -> ElementRef {
-        self.to_ref(Element::new(ElementKind::Button, self), children)
     }
 }
 

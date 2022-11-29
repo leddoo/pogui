@@ -1,30 +1,134 @@
+use core::cell::RefCell;
 use std::rc::Rc;
 
 use crate::win::*;
 use crate::common::*;
+use crate::ctx::Ctx;
 use crate::element::*;
 
 
 pub struct Gui {
+    ctx: Ctx,
+
     pub root: Option<ElementRef>,
 
-    pub hover:  Option<ElementRef>,
-    pub active: Option<ElementRef>,
+    hover:  Option<ElementRef>,
+    active: Option<ElementRef>,
 
-    pub window_size: [f32; 2],
+    window_size: [f32; 2],
 }
 
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum NodeKind {
+    Div,
+    Button,
+    Span,
+    Text,
+}
+
+
+#[derive(Clone, Copy)]
+pub struct Node (pub *const RefCell<Element>);
+
+
+pub use crate::common::Cursor;
+
+
+pub struct Event {
+}
+
+pub trait EventHandler: FnMut(&mut Gui, &mut Event) + 'static {}
+
+impl<T: FnMut(&mut Gui, &mut Event) + 'static> EventHandler for T {}
+
+
+pub trait IGui {
+    fn create_node(&mut self, kind: NodeKind) -> Node;
+    fn create_text(&mut self, value: &str) -> Node;
+
+    fn set_children<C: Iterator<Item=Node>>(&mut self, parent: Node, children: C);
+    fn set_style(&mut self, node: Node, style: Style);
+    fn set_text(&mut self, node: Node, text: String);
+
+    fn set_on_click<H: EventHandler>(&mut self, node: Node, handler: H);
+
+    fn on_mouse_move(&mut self, x: f32, y: f32);
+    fn on_mouse_down(&mut self);
+    fn on_mouse_up(&mut self);
+
+    fn set_window_size(&mut self, w: f32, h: f32);
+
+    fn paint(&mut self, rt: &ID2D1RenderTarget);
+
+    fn get_cursor(&mut self) -> Cursor;
+}
+
+
 impl Gui {
-    pub fn new() -> Gui {
+    pub fn new(ctx: Ctx) -> Gui {
         Gui {
+            ctx,
             root: None,
             hover:  None,
             active: None,
             window_size: [0.0; 2],
         }
     }
+}
 
-    pub fn on_mouse_move(&mut self, x: f32, y: f32) {
+impl IGui for Gui {
+    fn create_node(&mut self, kind: NodeKind) -> Node {
+        let node = Ctx::to_ref(Element::new(kind), vec![]);
+        let result = Node(&*node.0);
+        core::mem::forget(result);
+        result
+    }
+
+    fn create_text(&mut self, value: &str) -> Node {
+        let mut e = Element::new(NodeKind::Text);
+        e.text = value.into();
+
+        let node = Ctx::to_ref(e, vec![]);
+        let result = Node(&*node.0);
+        core::mem::forget(result);
+        result
+    }
+
+    fn set_children<C: Iterator<Item=Node>>(&mut self, parent: Node, children: C) {
+        let parent = unsafe { ElementRef(Rc::from_raw(parent.0)) };
+        let children =
+            children.into_iter()
+            .map(|c| {
+                let c = unsafe { ElementRef(Rc::from_raw(c.0)) };
+                let r = c.clone();
+                core::mem::forget(c);
+                r
+            })
+            .collect();
+        Element::set_children(&parent, children);
+        core::mem::forget(parent);
+    }
+
+    fn set_style(&mut self, node: Node, style: Style) {
+        let node = unsafe { ElementRef(Rc::from_raw(node.0)) };
+        node.set_style(style);
+        core::mem::forget(node);
+    }
+
+    fn set_text(&mut self, node: Node, text: String) {
+        let node = unsafe { ElementRef(Rc::from_raw(node.0)) };
+        node.set_text(text);
+        core::mem::forget(node);
+    }
+
+    fn set_on_click<H: EventHandler>(&mut self, node: Node, handler: H) {
+        let node = unsafe { ElementRef(Rc::from_raw(node.0)) };
+        node.set_on_click(Box::new(handler));
+        core::mem::forget(node);
+    }
+
+    fn on_mouse_move(&mut self, x: f32, y: f32) {
         let old_hover = self.hover.as_ref();
         let new_hover = {
             let root = self.root.as_ref().unwrap();
@@ -59,7 +163,7 @@ impl Gui {
         self.hover = new_hover;
     }
 
-    pub fn on_mouse_down(&mut self) {
+    fn on_mouse_down(&mut self) {
         assert!(self.active.is_none());
 
         if let Some(hover) = self.hover.as_ref() {
@@ -78,7 +182,7 @@ impl Gui {
         self.active = new_active.cloned();
     }
 
-    pub fn on_mouse_up(&mut self) {
+    fn on_mouse_up(&mut self) {
         if let Some(hover) = self.hover.clone() {
             let mut h = hover.borrow_mut();
             h.on_mouse_up(self);
@@ -93,7 +197,7 @@ impl Gui {
         self.active = None;
     }
 
-    pub fn set_window_size(&mut self, w: f32, h: f32) {
+    fn set_window_size(&mut self, w: f32, h: f32) {
         if self.root.is_none() { return }
 
         let new_size = [w, h];
@@ -119,41 +223,23 @@ impl Gui {
         self.window_size = new_size;
     }
 
-    pub fn paint(&mut self, w: f32, h: f32, rt: &ID2D1RenderTarget) {
+    fn paint(&mut self, rt: &ID2D1RenderTarget) {
         if self.root.is_none() { return }
 
-        self.set_window_size(w, h);
+        let [w, h] = self.window_size;
 
         // TEMP
         let mut root = self.root.as_ref().unwrap().borrow_mut();
         root.style(&Style::new());
-        root.render_children();
+        root.render_children(self.ctx);
         root.layout(LayoutBox::tight([w/2.0, h]));
         root.paint(rt);
     }
 
-
-    pub fn get_element(&self, id: &str) -> Option<ElementRef> {
-        if self.root.is_none() { return None }
-
-        fn recurse(this: &ElementRef, id: &str) -> Option<ElementRef> {
-            let me = this.borrow();
-            if me.id == id {
-                return Some(this.clone());
-            }
-
-            let mut at = me.first_child.clone();
-            while let Some(child) = at {
-                let result = recurse(&child, id);
-                if result.is_some() {
-                    return result;
-                }
-
-                at = child.borrow().next_sibling.clone();
-            }
-            None
-        }
-        recurse(self.root.as_ref().unwrap(), id)
+    fn get_cursor(&mut self) -> Cursor {
+        self.hover.as_ref()
+        .map(|h| h.borrow().cursor())
+        .unwrap_or(Cursor::Default)
     }
 }
 
