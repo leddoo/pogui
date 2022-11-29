@@ -599,27 +599,27 @@ impl NodeData {
     }
 
     pub fn on_hover_start(&mut self) {
-        println!("{:?} hover start", self as *const _);
+        //println!("{:?} hover start", self as *const _);
     }
 
     pub fn on_hover_stop(&mut self) {
-        println!("{:?} hover stop", self as *const _);
+        //println!("{:?} hover stop", self as *const _);
     }
 
     pub fn on_active_start(&mut self) {
-        println!("{:?} active start", self as *const _);
+        //println!("{:?} active start", self as *const _);
     }
 
     pub fn on_active_stop(&mut self) {
-        println!("{:?} active stop", self as *const _);
+        //println!("{:?} active stop", self as *const _);
     }
 
     pub fn on_mouse_down(&mut self) {
-        println!("{:?} mouse down", self as *const _);
+        //println!("{:?} mouse down", self as *const _);
     }
 
     pub fn on_mouse_up(&mut self, gui: &mut Gui) {
-        println!("{:?} mouse up", self as *const _);
+        //println!("{:?} mouse up", self as *const _);
 
         if self.kind == NodeKind::Button && self.active {
             if let Some(handler) = self.on_click.as_mut() {

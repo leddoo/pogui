@@ -4,11 +4,10 @@
 - present:
     - impl api.
         - tree mutation.
-            - insert before/after /_child?
-            - remove/_child.
-            - append.
+            - remove from old parent.
+            - verify no duplicates for set children.
             - clear children.
-            - the _child variants would be for error detection.
+        - button rendering issue.
         - event handlers.
             - add handler: handler -> handler weak ref.
             - remove handler.

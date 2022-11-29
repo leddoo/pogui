@@ -111,10 +111,20 @@ pub fn main() {
 
     let g = &mut gui;
 
+    let the_list = div([], &[], g);
+    let add_button = button([text("+", g)], &[], move |gui, _e| {
+        let item = div([text("something ", gui)], &[], gui);
+        let button = button([text("x", gui)], &[], move |gui, _e| {
+            gui.destroy_node(item);
+        }, gui);
+        gui.append_child(item, button);
+        gui.append_child(the_list, item);
+    }, g);
+
     let the_span = span([text(&state.get().to_string(), g)], &[], g);
 
-    let root =
-        div([
+    let nodes =
+        [
             text("hello, ", g),
             text("weirdo!", g),
             div([
@@ -158,7 +168,7 @@ pub fn main() {
                 text(" ", g),
                 button([text("increment", g)], &[
                     ("background_color", "ffffdd"),
-                ], { let state = state.clone(); move |gui: &mut Gui, _e| {
+                ], { let state = state.clone(); move |gui, _e| {
                     state.set(state.get() + 1);
                     let new_text = text(&state.get().to_string(), gui);
                     gui.set_children(the_span, [new_text]);
@@ -174,8 +184,11 @@ pub fn main() {
             ], &[
                 ("background_color", "ddddff"),
             ], g),
-        ], &[], g);
-    gui.root = Some(root);
+            the_list,
+            div([add_button], &[], g), // TEMP
+        ];
+    let root = g.root();
+    g.set_children(root, nodes);
 
     unsafe {
         std::panic::set_hook(Box::new(|info| {
