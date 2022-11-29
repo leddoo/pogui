@@ -2,9 +2,7 @@
     - initial api.
 
 - present:
-    - clean up:
-        - node data array & generational node handles.
-    - design api.
+    - impl api.
         - tree mutation.
             - insert before/after /_child?
             - remove/_child.

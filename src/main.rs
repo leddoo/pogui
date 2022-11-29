@@ -9,7 +9,7 @@ mod common;
 mod ctx;
 mod gui;
 mod text;
-mod element;
+mod node;
 
 
 use crate::win::*;
@@ -103,7 +103,7 @@ pub fn main() {
         gui.create_text(value)
     }
 
-    fn button<C: IntoIterator<Item=Node>, H: FnMut(&mut Gui, &mut Event) + 'static>(children: C, style: &[(&str, &str)], on_click: H, gui: &mut Gui) -> Node {
+    fn button<C: IntoIterator<Item=Node>, H: Fn(&mut Gui, &mut Event) + 'static>(children: C, style: &[(&str, &str)], on_click: H, gui: &mut Gui) -> Node {
         let node = mk_node(NodeKind::Button, children, style, gui);
         gui.set_on_click(node, on_click);
         node
@@ -111,7 +111,7 @@ pub fn main() {
 
     let g = &mut gui;
 
-    let the_text = text(&state.get().to_string(), g);
+    let the_span = span([text(&state.get().to_string(), g)], &[], g);
 
     let root =
         div([
@@ -154,13 +154,14 @@ pub fn main() {
             ], g),
             div([
                 text("count: ", g),
-                the_text,
+                the_span,
                 text(" ", g),
                 button([text("increment", g)], &[
                     ("background_color", "ffffdd"),
                 ], { let state = state.clone(); move |gui: &mut Gui, _e| {
                     state.set(state.get() + 1);
-                    gui.set_text(the_text, state.get().to_string());
+                    let new_text = text(&state.get().to_string(), gui);
+                    gui.set_children(the_span, [new_text]);
                 }}, g),
                 text(" ", g),
                 div([
@@ -174,13 +175,7 @@ pub fn main() {
                 ("background_color", "ddddff"),
             ], g),
         ], &[], g);
-    gui.root = Some(
-        unsafe {
-            let r = Rc::from_raw(root.0);
-            let result = crate::element::ElementRef(r.clone());
-            core::mem::forget(r);
-            result
-        });
+    gui.root = Some(root);
 
     unsafe {
         std::panic::set_hook(Box::new(|info| {

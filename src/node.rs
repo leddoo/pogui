@@ -1,4 +1,3 @@
-use core::cell::*;
 use std::rc::Rc;
 
 use crate::win::*;
@@ -32,15 +31,15 @@ impl NodeKind {
 }
 
 
-pub struct Element {
+pub(crate) struct NodeData {
     pub kind: NodeKind,
 
-    pub this:         Option<ElementRef>,
-    pub parent:       Option<ElementRef>,
-    pub first_child:  Option<ElementRef>,
-    pub last_child:   Option<ElementRef>,
-    pub next_sibling: Option<ElementRef>,
-    pub prev_sibling: Option<ElementRef>,
+    pub this:         Option<Node>,
+    pub parent:       Option<Node>,
+    pub first_child:  Option<Node>,
+    pub last_child:   Option<Node>,
+    pub next_sibling: Option<Node>,
+    pub prev_sibling: Option<Node>,
 
     pub pos:  [f32; 2],
     pub size: [f32; 2],
@@ -56,57 +55,28 @@ pub struct Element {
 
     pub text: String,
 
-    pub on_click: Option<Box<dyn EventHandler>>,
+    pub on_click: Option<Rc<dyn EventHandler>>,
 }
 
 
-#[derive(Clone)]
-pub struct ElementRef (pub Rc<RefCell<Element>>);
-
-impl ElementRef {
-    #[inline]
-    pub fn borrow(&self) -> Ref<Element> {
-        self.0.borrow()
+impl NodeData {
+    pub fn set_style(&mut self, style: Style) {
+        assert!(self.kind == NodeKind::Div
+            || self.kind == NodeKind::Button
+            || self.kind == NodeKind::Span);
+        self.style = style;
     }
 
-    #[allow(dead_code)] // TEMP
-    #[inline]
-    pub fn borrow_with<R, F: FnOnce(&Element) -> R>(&self, f: F) -> R {
-        f(&mut self.0.borrow())
+    pub fn set_text(&mut self, text: String) {
+        assert!(self.kind == NodeKind::Text);
+        self.text = text;
     }
 
-    #[inline]
-    pub fn borrow_mut(&self) -> RefMut<Element> {
-        self.0.borrow_mut()
+    pub fn set_on_click(&mut self, on_click: Rc<dyn EventHandler>) {
+        assert!(self.kind == NodeKind::Button);
+        self.on_click = Some(on_click);
     }
 
-    #[inline]
-    pub fn borrow_mut_with<R, F: FnOnce(&mut Element) -> R>(&self, f: F) -> R {
-        f(&mut self.0.borrow_mut())
-    }
-
-    pub fn set_style(&self, style: Style) {
-        let mut this = self.borrow_mut();
-        assert!(this.kind == NodeKind::Div
-            || this.kind == NodeKind::Button
-            || this.kind == NodeKind::Span);
-        this.style = style;
-    }
-
-    pub fn set_text(&self, text: String) {
-        let mut this = self.borrow_mut();
-        assert!(this.kind == NodeKind::Text);
-        this.text = text;
-    }
-
-    pub fn set_on_click(&self, on_click: Box<dyn EventHandler>) {
-        let mut this = self.borrow_mut();
-        assert!(this.kind == NodeKind::Button);
-        this.on_click = Some(on_click);
-    }
-}
-
-impl Element {
     pub fn display(&self) -> Display {
         self.computed_style.get("display")
         .map(|display| {
@@ -123,19 +93,19 @@ impl Element {
 
 
 enum RenderElement {
-    Element { ptr: ElementRef },
+    Element { ptr: Node },
     Text {
         pos: [f32; 2],
         layout: TextLayout,
-        objects: Vec<ElementRef>,
+        objects: Vec<Node>,
     },
 }
 
 
 
-impl Element {
-    pub fn new(kind: NodeKind) -> Element {
-        Element {
+impl NodeData {
+    pub fn new(kind: NodeKind) -> NodeData {
+        NodeData {
             kind,
             this: None,
             parent: None,
@@ -153,11 +123,11 @@ impl Element {
         }
     }
 
-    pub fn visit_children<F: FnMut(&ElementRef)>(first_child: &Option<ElementRef>, mut f: F) {
-        let mut at = first_child.clone();
+    pub fn visit_children<F: FnMut(Node)>(gui: &Gui, first_child: Option<Node>, mut f: F) {
+        let mut at = first_child;
         while let Some(child) = at {
-            f(&child);
-            at = child.borrow().next_sibling.clone();
+            f(child);
+            at = child.borrow(gui).next_sibling;
         }
     }
 }
@@ -166,37 +136,44 @@ impl Element {
 
 // TREE STRUCTURE
 
-impl Element {
-    pub fn set_children(this: &ElementRef, children: Vec<ElementRef>) {
-        // TODO: remove old children.
-        // and free memory if no more strong refs.
+impl NodeData {
+    pub fn set_children(gui: &mut Gui, this: Node, children: Vec<Node>) {
+        // destroy old children.
+        let mut at = this.borrow(gui).first_child;
+        while let Some(child) = at {
+            let c = child.borrow(gui);
+            let next = c.next_sibling;
+            assert_eq!(c.parent, Some(this));
+            drop(c);
+
+            gui.destroy_node(child);
+            at = next;
+        }
 
         let mut first_child = None;
-        let mut prev_child: Option<ElementRef> = None;
+        let mut prev_child: Option<Node> = None;
         for child in children {
-            child.borrow_mut().parent = Some(this.clone());
+            child.borrow_mut(gui).parent = Some(this.clone());
 
             if let Some(prev) = prev_child {
-                prev.borrow_mut().next_sibling  = Some(child.clone());
-                child.borrow_mut().prev_sibling = Some(prev);
+                prev.borrow_mut(gui).next_sibling  = Some(child.clone());
+                child.borrow_mut(gui).prev_sibling = Some(prev);
                 prev_child = Some(child);
             }
             else {
-                child.borrow_mut().prev_sibling = None;
+                child.borrow_mut(gui).prev_sibling = None;
                 first_child = Some(child.clone());
                 prev_child  = Some(child);
             }
         }
         if let Some(last_child) = &prev_child {
-            last_child.borrow_mut().next_sibling = None;
+            last_child.borrow_mut(gui).next_sibling = None;
         }
 
-        let this_ref = this.clone();
-        this.borrow_mut_with(|this| {
-            this.this = Some(this_ref);
-            this.first_child = first_child;
-            this.last_child  = prev_child;
-        });
+        let mut me = this.borrow_mut(gui);
+        me.this = Some(this);
+        me.first_child = first_child;
+        me.last_child  = prev_child;
     }
 }
 
@@ -204,8 +181,8 @@ impl Element {
 
 // STYLE
 
-impl Element {
-    pub fn style(&mut self, parent: &Style) {
+impl NodeData {
+    pub fn style(&mut self, gui: &Gui, parent: &Style) {
         fn is_inherited_style(name: &str) -> bool {
             match name {
                 "text_color" => true,
@@ -229,17 +206,18 @@ impl Element {
 
         self.computed_style = computed;
 
-        Self::visit_children(&self.first_child, |child| {
-            child.borrow_mut().style(&self.computed_style)
+        Self::visit_children(gui, self.first_child, |child| {
+            child.borrow_mut(gui).style(gui, &self.computed_style)
         })
     }
 
-    pub fn render_children(&mut self, ctx: Ctx) {
+    pub fn render_children(&mut self, ctx: Ctx, gui: &Gui) {
         struct ChildRenderer<'a> {
             ctx: Ctx,
+            gui: &'a Gui,
             children: &'a mut Vec<RenderElement>,
             builder: TextLayoutBuilder,
-            objects: Vec<ElementRef>,
+            objects: Vec<Node>,
         }
 
         impl<'a> ChildRenderer<'a> {
@@ -274,8 +252,8 @@ impl Element {
                 self.builder.set_format(old_format);
             }
 
-            fn visit(&mut self, el: &ElementRef) {
-                let mut e = el.borrow_mut();
+            fn visit(&mut self, el: Node) {
+                let mut e = el.borrow_mut(self.gui);
 
                 if e.kind == NodeKind::Text {
                     self.builder.add_string(&e.text);
@@ -287,13 +265,13 @@ impl Element {
 
                     Display::Inline => {
                         if e.kind.is_container() {
-                            e.render_children(self.ctx);
+                            e.render_children(self.ctx, self.gui);
                             self.builder.add_object();
                             self.objects.push(el.clone());
                         }
                         else {
                             self.with_style(&e.computed_style, |this| {
-                                Element::visit_children(&e.first_child, |child| {
+                                NodeData::visit_children(self.gui, e.first_child, |child| {
                                     this.visit(child);
                                 });
                             })
@@ -301,7 +279,7 @@ impl Element {
                     }
 
                     Display::Block => {
-                        e.render_children(self.ctx);
+                        e.render_children(self.ctx, self.gui);
                         self.flush();
                         self.children.push(RenderElement::Element { ptr: el.clone() });
                     }
@@ -318,14 +296,14 @@ impl Element {
         };
 
         let mut cr = ChildRenderer {
-            ctx,
+            ctx, gui,
             children: &mut self.render_children,
             builder: TextLayoutBuilder::new(ctx, format),
             objects: vec![],
         };
 
         cr.with_style(&self.computed_style, |cr| {
-            Self::visit_children(&self.first_child, |child|
+            Self::visit_children(gui, self.first_child, |child|
                 cr.visit(child));
         });
         cr.flush();
@@ -336,8 +314,8 @@ impl Element {
 
 // LAYOUT
 
-impl Element {
-    pub fn max_width(&mut self) -> f32 {
+impl NodeData {
+    pub fn max_width(&mut self, gui: &Gui) -> f32 {
         assert!(self.kind == NodeKind::Div);
 
         let layout = Layout::Lines;
@@ -351,15 +329,15 @@ impl Element {
                     match child {
                         RenderElement::Element { ptr } => {
                             // assume "elements" are block elements.
-                            let mut child = ptr.borrow_mut();
-                            max_width = max_width.max(child.max_width());
+                            let mut child = ptr.borrow_mut(gui);
+                            max_width = max_width.max(child.max_width(gui));
                         }
 
                         RenderElement::Text { pos: _, layout, objects } => {
                             // TODO: duplicated. also, want to cache.
                             for (i, obj) in objects.iter().enumerate() {
-                                let mut o = obj.borrow_mut();
-                                o.layout(LayoutBox::any());
+                                let mut o = obj.borrow_mut(gui);
+                                o.layout(gui, LayoutBox::any());
 
                                 layout.set_object_size(i, o.size);
                                 layout.set_object_baseline(i, o.baseline);
@@ -384,7 +362,7 @@ impl Element {
         }
     }
 
-    pub fn layout(&mut self, lbox: LayoutBox) {
+    pub fn layout(&mut self, gui: &Gui, lbox: LayoutBox) {
         assert!(self.kind == NodeKind::Div
             || self.kind == NodeKind::Button);
 
@@ -401,15 +379,15 @@ impl Element {
                             match child {
                                 RenderElement::Element { ptr } => {
                                     // assume "elements" are block elements.
-                                    let mut child = ptr.borrow_mut();
-                                    max_width = max_width.max(child.max_width());
+                                    let mut child = ptr.borrow_mut(gui);
+                                    max_width = max_width.max(child.max_width(gui));
                                 }
 
                                 RenderElement::Text { pos: _, layout, objects } => {
                                     // TODO: duplicated. also, want to cache.
                                     for (i, obj) in objects.iter().enumerate() {
-                                        let mut o = obj.borrow_mut();
-                                        o.layout(LayoutBox::any());
+                                        let mut o = obj.borrow_mut(gui);
+                                        o.layout(gui, LayoutBox::any());
 
                                         layout.set_object_size(i, o.size);
                                         layout.set_object_baseline(i, o.baseline);
@@ -436,7 +414,7 @@ impl Element {
                     match child {
                         RenderElement::Element { ptr } => {
                             // assume "elements" are block elements.
-                            let mut child = ptr.borrow_mut();
+                            let mut child = ptr.borrow_mut(gui);
 
                             let mut child_lbox = LayoutBox {
                                 min: [this_width, 0.0],
@@ -494,7 +472,7 @@ impl Element {
                                 child_lbox.max[1] = child_max_height;
                             }
 
-                            child.layout(child_lbox);
+                            child.layout(gui, child_lbox);
 
                             let height = child.size[1];
                             child.pos = [0.0, cursor];
@@ -505,8 +483,8 @@ impl Element {
 
                         RenderElement::Text { pos, layout, objects } => {
                             for (i, obj) in objects.iter().enumerate() {
-                                let mut o = obj.borrow_mut();
-                                o.layout(LayoutBox::any());
+                                let mut o = obj.borrow_mut(gui);
+                                o.layout(gui, LayoutBox::any());
 
                                 layout.set_object_size(i, o.size);
                                 layout.set_object_baseline(i, o.baseline);
@@ -516,7 +494,7 @@ impl Element {
                             layout.layout();
 
                             for (i, obj) in objects.iter().enumerate() {
-                                let mut o = obj.borrow_mut();
+                                let mut o = obj.borrow_mut(gui);
                                 o.pos = layout.get_object_pos(i);
                             }
 
@@ -542,9 +520,9 @@ impl Element {
 
 // HIT TESTING & EVENTS
 
-impl Element {
-    pub fn hit_test<P: Fn(&Element) -> bool + Copy>(this: &ElementRef, x: f32, y: f32, p: P) -> Option<(ElementRef, usize)> {
-        let me = this.borrow();
+impl NodeData {
+    pub fn hit_test<P: Fn(&NodeData) -> bool + Copy>(gui: &Gui, this: Node, x: f32, y: f32, p: P) -> Option<(Node, usize)> {
+        let me = this.borrow(gui);
         assert!(me.kind == NodeKind::Div
             ||  me.kind == NodeKind::Button);
 
@@ -557,7 +535,7 @@ impl Element {
         for child in me.render_children.iter() {
             match child {
                 RenderElement::Element { ptr } => {
-                    let result = Element::hit_test(ptr, x, y, p);
+                    let result = NodeData::hit_test(gui, *ptr, x, y, p);
                     if result.is_some() {
                         return result;
                     }
@@ -572,7 +550,7 @@ impl Element {
                     let hit = layout.hit_test_pos(x, y);
                     if !hit.out_of_bounds[0] && !hit.out_of_bounds[1] {
                         if let Some(index) = hit.object {
-                            let hit = Element::hit_test(&objects[index], x, y, p);
+                            let hit = NodeData::hit_test(gui, objects[index], x, y, p);
                             if hit.is_some() {
                                 return hit;
                             }
@@ -651,6 +629,10 @@ impl Element {
         }
     }
 
+    pub fn get_on_click(&self) -> Option<Rc<dyn EventHandler>> {
+        self.on_click.clone()
+    }
+
     pub fn on_mouse_move(&mut self, x: f32, y: f32) {
         let _ = (x, y);
         //println!("{:?} mouse move {} {}", self as *const _, x, y);
@@ -661,8 +643,8 @@ impl Element {
 
 // PAINT
 
-impl Element {
-    pub fn paint(&mut self, rt: &ID2D1RenderTarget) {
+impl NodeData {
+    pub fn paint(&mut self, gui: &Gui, rt: &ID2D1RenderTarget) {
         assert!(self.kind == NodeKind::Div
             || self.kind == NodeKind::Button);
 
@@ -719,14 +701,15 @@ impl Element {
         for child in &mut self.render_children {
             match child {
                 RenderElement::Element { ptr } => {
-                    ptr.0.borrow_mut().paint(rt);
+                    ptr.borrow_mut(gui).paint(gui, rt);
                 }
 
                 RenderElement::Text { pos, layout, objects } => {
                     struct D2dTextRenderer<'a> {
+                        gui: &'a Gui,
                         rt:    &'a ID2D1RenderTarget,
                         brush: &'a ID2D1SolidColorBrush,
-                        objects: &'a [ElementRef],
+                        objects: &'a [Node],
                     }
 
                     impl<'a> TextRenderer for D2dTextRenderer<'a> {
@@ -769,8 +752,8 @@ impl Element {
                         }
 
                         fn object(&self, data: &DrawObject) {
-                            let mut o = self.objects[data.index as usize].borrow_mut();
-                            o.paint(self.rt);
+                            let mut o = self.objects[data.index as usize].borrow_mut(self.gui);
+                            o.paint(self.gui, self.rt);
                         }
                     }
 
@@ -778,6 +761,7 @@ impl Element {
                     let brush = unsafe { rt.CreateSolidColorBrush(&color, None).unwrap() };
 
                     let r = D2dTextRenderer {
+                        gui,
                         rt: rt.into(),
                         brush: &brush,
                         objects: &objects,
@@ -790,44 +774,6 @@ impl Element {
         unsafe {
             rt.SetTransform(&old_tfx);
         }
-    }
-}
-
-
-
-
-impl Ctx {
-    pub fn to_ref(element: Element, children: Vec<ElementRef>) -> ElementRef {
-        let this = ElementRef(Rc::new(RefCell::new(element)));
-
-        let mut first_child = None;
-        let mut prev_child: Option<ElementRef> = None;
-        for child in children {
-            child.borrow_mut().parent = Some(this.clone());
-
-            if let Some(prev) = prev_child {
-                prev.borrow_mut().next_sibling  = Some(child.clone());
-                child.borrow_mut().prev_sibling = Some(prev);
-                prev_child = Some(child);
-            }
-            else {
-                child.borrow_mut().prev_sibling = None;
-                first_child = Some(child.clone());
-                prev_child  = Some(child);
-            }
-        }
-        if let Some(last_child) = &prev_child {
-            last_child.borrow_mut().next_sibling = None;
-        }
-
-        let this_ref = this.clone();
-        this.borrow_mut_with(|this| {
-            this.this = Some(this_ref);
-            this.first_child = first_child;
-            this.last_child  = prev_child;
-        });
-
-        this
     }
 }
 
