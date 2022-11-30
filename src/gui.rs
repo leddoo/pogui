@@ -84,12 +84,14 @@ pub trait IGui {
     fn prepend_child(&mut self, parent: Node, new_child: Node);
     fn append_child(&mut self, parent: Node, new_child: Node);
 
-    fn insert_before_child(&mut self, parent: Node, ref_child: Node, new_child: Node);
-    fn insert_after_child(&mut self, parent: Node, ref_child: Node, new_child: Node);
+    fn insert_before_child(&mut self, parent: Node, ref_child: Option<Node>, new_child: Node);
+    fn insert_after_child(&mut self, parent: Node, ref_child: Option<Node>, new_child: Node);
 
     fn remove_child(&mut self, parent: Node, child: Node, keep_alive: bool);
     fn remove_node(&mut self, node: Node, keep_alive: bool);
     fn destroy_node(&mut self, node: Node);
+
+    fn swap_nodes(&mut self, a: Node, b: Node);
 
     fn get_parent(&self, node: Node) -> Option<Node>;
     fn get_first_child(&self, node: Node) -> Option<Node>;
@@ -339,7 +341,15 @@ impl IGui for Gui {
         debug_assert!(self.check_tree());
     }
 
-    fn insert_before_child(&mut self, parent: Node, ref_child: Node, new_child: Node) {
+    fn insert_before_child(&mut self, parent: Node, ref_child: Option<Node>, new_child: Node) {
+        let Some(ref_child) = ref_child else {
+            self.append_child(parent, new_child);
+            return;
+        };
+        if ref_child == new_child {
+            return;
+        }
+
         // remove from old parent.
         if let Some(old_parent) = self.get_parent(new_child) {
             self.remove_child(old_parent, new_child, true);
@@ -371,7 +381,15 @@ impl IGui for Gui {
         debug_assert!(self.check_tree());
     }
 
-    fn insert_after_child(&mut self, parent: Node, ref_child: Node, new_child: Node) {
+    fn insert_after_child(&mut self, parent: Node, ref_child: Option<Node>, new_child: Node) {
+        let Some(ref_child) = ref_child else {
+            self.prepend_child(parent, new_child);
+            return;
+        };
+        if ref_child == new_child {
+            return;
+        }
+
         // remove from old parent.
         if let Some(old_parent) = self.get_parent(new_child) {
             self.remove_child(old_parent, new_child, true);
@@ -460,6 +478,31 @@ impl IGui for Gui {
 
     fn destroy_node(&mut self, node: Node) {
         self.remove_node(node, false);
+    }
+
+    fn swap_nodes(&mut self, a: Node, b: Node) {
+        if a == b {
+            return;
+        }
+
+        // get parents & references.
+        // TODO: support None parents.
+        let (pa, ra) = {
+            let a = a.borrow(self);
+            (a.parent.unwrap(), a.prev_sibling)
+        };
+        let (pb, rb) = {
+            let b = b.borrow(self);
+            (b.parent.unwrap(), b.prev_sibling)
+        };
+
+        self.insert_after_child(pa, ra, b);
+        if rb == Some(a) {
+            self.insert_after_child(pb, Some(b), a);
+        }
+        else {
+            self.insert_after_child(pb, rb, a);
+        }
     }
 
 

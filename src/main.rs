@@ -129,10 +129,7 @@ pub fn main() {
             { let active = active.clone(); move |gui, e| {
                 let this = e.target;
                 if let Some(other) = active.get() {
-                    let other_parent = gui.get_parent(other).unwrap();
-                    let this_parent  = gui.get_parent(this).unwrap();
-                    gui.append_child(other_parent, this);
-                    gui.append_child(this_parent,  other);
+                    gui.swap_nodes(this, other);
                     gui.set_children(other, []);
                     active.set(None);
                 }
@@ -147,12 +144,7 @@ pub fn main() {
     let bg = mk_button(g, "00ff00", &active);
     let bb = mk_button(g, "0000ff", &active);
     let bw = mk_button(g, "ffffff", &active);
-    let the_grid = div([
-        div([br], &[], g),
-        div([bg], &[], g),
-        div([bb], &[], g),
-        div([bw], &[], g),
-    ], &[], g);
+    let the_grid = div([ br, bg, bb, bw ], &[], g);
 
     let the_span = span([text(&state.get().to_string(), g)], &[], g);
 

@@ -2,7 +2,6 @@
     - initial api.
 
 - present:
-    - "insert_child_*before/after*" & `ref_child: Option<Node>`.
     - verify no duplicates for set children.
     - fix button rendering issue.
     - event handlers.
