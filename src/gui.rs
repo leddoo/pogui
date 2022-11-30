@@ -181,6 +181,74 @@ impl Gui {
         n.gen = NonZeroU32::new(n.gen.get() + 1).unwrap();
         n.used = false;
     }
+
+
+    fn check_tree(&self) -> bool {
+        let mut visited = vec![false; self.nodes.len()];
+
+        for (i, n) in self.nodes.iter().enumerate() {
+            if !n.used { continue }
+
+            let this = Node { index: i as u32, gen: n.gen };
+            let d = n.data.borrow();
+
+            // check siblings (technically redundant).
+            if d.parent.is_some() {
+                if let Some(next) = d.next_sibling {
+                    let next = next.borrow(self);
+                    assert_eq!(next.prev_sibling, Some(this));
+                }
+                if let Some(prev) = d.prev_sibling {
+                    let prev = prev.borrow(self);
+                    assert_eq!(prev.next_sibling, Some(this));
+                }
+            }
+            else {
+                assert_eq!(d.next_sibling, None);
+                assert_eq!(d.prev_sibling, None);
+            }
+
+            // check children.
+            //  - correct parent.
+            //  - correct siblings.
+            //  - acyclic.
+            if let Some(first) = d.first_child {
+                let last = d.last_child.unwrap();
+
+                let mut at = first;
+                let mut it = at.borrow(self);
+                assert_eq!(it.prev_sibling, None);
+                loop {
+                    assert_eq!(it.parent, Some(this));
+                    assert!(!visited[at.index as usize]);
+                    visited[at.index as usize] = true;
+
+                    if at == last {
+                        break;
+                    }
+
+                    let next_at = it.next_sibling.unwrap();
+                    let next_it = next_at.borrow(self);
+                    assert_eq!(next_it.prev_sibling, Some(at));
+                    at = next_at;
+                    it = next_it;
+                }
+                assert_eq!(it.next_sibling, None);
+            }
+            else {
+                assert_eq!(d.last_child, None);
+            }
+        }
+
+        for (i, n) in self.nodes.iter().enumerate() {
+            if n.used {
+                let d = n.data.borrow();
+                assert!(d.parent.is_none() || visited[i]);
+            }
+        }
+
+        true
+    }
 }
 
 impl IGui for Gui {
@@ -217,6 +285,9 @@ impl IGui for Gui {
             p.last_child = Some(new_child);
         }
         p.first_child = Some(new_child);
+
+        drop((p, n));
+        debug_assert!(self.check_tree());
     }
 
     fn append_child(&mut self, parent: Node, new_child: Node) {
@@ -237,6 +308,9 @@ impl IGui for Gui {
             p.first_child = Some(new_child);
         }
         p.last_child = Some(new_child);
+
+        drop((p, n));
+        debug_assert!(self.check_tree());
     }
 
     fn insert_before_child(&mut self, parent: Node, ref_child: Node, new_child: Node) {
@@ -261,6 +335,9 @@ impl IGui for Gui {
         }
 
         r.prev_sibling = Some(new_child);
+
+        drop((p, r, n));
+        debug_assert!(self.check_tree());
     }
 
     fn insert_after_child(&mut self, parent: Node, ref_child: Node, new_child: Node) {
@@ -285,6 +362,9 @@ impl IGui for Gui {
         }
 
         r.next_sibling = Some(new_child);
+
+        drop((p, r, n));
+        debug_assert!(self.check_tree());
     }
 
     fn remove_child(&mut self, parent: Node, child: Node, keep_alive: bool) {
@@ -321,6 +401,8 @@ impl IGui for Gui {
         if !keep_alive {
             self.free_node(child)
         }
+
+        debug_assert!(self.check_tree());
     }
 
     fn remove_node(&mut self, node: Node, keep_alive: bool) {
@@ -330,6 +412,7 @@ impl IGui for Gui {
         }
         else if !keep_alive {
             self.free_node(node);
+            debug_assert!(self.check_tree());
         }
     }
 
