@@ -2,8 +2,6 @@
     - initial api.
 
 - present:
-    - verify no duplicates for set children.
-    - fix button rendering issue.
     - event handlers.
         - add handler: handler -> handler weak ref.
         - remove handler.
@@ -15,6 +13,7 @@
         - shadows.
     - which elements can be hovered/active?
     - tab navigation.
+    - verify no duplicates for set children.
 
 - horizon:
     - more style:

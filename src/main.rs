@@ -222,7 +222,7 @@ pub fn main() {
                 ("background_color", "ddddff"),
             ], g),
             the_list,
-            div([add_button], &[], g), // TEMP
+            add_button,
             the_grid,
         ];
     let root = g.root();

@@ -754,6 +754,17 @@ impl NodeData {
 
                     let color = D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
                     let brush = unsafe { rt.CreateSolidColorBrush(&color, None).unwrap() };
+        
+
+                    // TODO: not sure this should be here.
+                    let mut old_tfx = Default::default();
+                    unsafe {
+                        rt.GetTransform(&mut old_tfx);
+
+                        // need to round here, else rounding in children is meaningless.
+                        let new_tfx = Matrix3x2::translation(pos[0].round(), pos[1].round()) * old_tfx;
+                        rt.SetTransform(&new_tfx);
+                    }
 
                     let r = D2dTextRenderer {
                         gui,
@@ -761,7 +772,11 @@ impl NodeData {
                         brush: &brush,
                         objects: &objects,
                     };
-                    layout.draw(*pos, &r);
+                    layout.draw([0.0, 0.0], &r);
+
+                    unsafe {
+                        rt.SetTransform(&old_tfx);
+                    }
                 }
             }
         }
