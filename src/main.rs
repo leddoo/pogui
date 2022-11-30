@@ -123,28 +123,39 @@ pub fn main() {
 
     let active = Rc::new(Cell::new(None));
 
-    fn mk_button(g: &mut Gui, color: &str, active: &Rc<Cell<Option<Node>>>) -> Node {
-        button([],
-            &[("background_color", color), ("width", "30"), ("height", "30"), ("display", "block")],
-            { let active = active.clone(); move |gui, e| {
-                let this = e.target;
-                if let Some(other) = active.get() {
-                    gui.swap_nodes(this, other);
-                    gui.set_children(other, []);
-                    active.set(None);
+    fn mk_button_handler(active: &Rc<Cell<Option<Node>>>, hidden: &Rc<Cell<Node>>) -> impl EventHandler {
+        let active = active.clone();
+        let hidden = hidden.clone();
+        move |gui: &mut Gui, e: &mut Event| {
+            let this = e.target;
+            if let Some(mut other) = active.get() {
+                if other == this {
+                    other = hidden.get();
+                    hidden.set(this);
                 }
-                else {
-                    let x = text("x", gui);
-                    gui.set_children(this, [x]);
-                    active.set(Some(this));
-                }
-            }}, g)
+
+                gui.swap_nodes(this, other);
+                gui.set_children(other, []);
+                active.set(None);
+            }
+            else {
+                let x = text("x", gui);
+                gui.set_children(this, [x]);
+                active.set(Some(this));
+            }
+        }
     }
-    let br = mk_button(g, "ff0000", &active);
-    let bg = mk_button(g, "00ff00", &active);
-    let bb = mk_button(g, "0000ff", &active);
-    let bw = mk_button(g, "ffffff", &active);
-    let the_grid = div([ br, bg, bb, bw ], &[], g);
+    fn mk_button(g: &mut Gui, color: &str, handler: impl EventHandler) -> Node {
+        button([], &[("background_color", color), ("width", "30"), ("height", "30"), ("display", "block")], handler, g)
+    }
+    let bp = mk_button(g, "ff00ff", |_: &mut Gui, _: &mut Event| {});
+    let hidden = Rc::new(Cell::new(bp));
+    g.set_on_click(bp, mk_button_handler(&active, &hidden));
+    let br = mk_button(g, "ff0000", mk_button_handler(&active, &hidden));
+    let bg = mk_button(g, "00ff00", mk_button_handler(&active, &hidden));
+    let bb = mk_button(g, "0000ff", mk_button_handler(&active, &hidden));
+    let bw = mk_button(g, "ffffff", mk_button_handler(&active, &hidden));
+    let the_grid = div([bb, bg, bw], &[], g);
 
     let the_span = span([text(&state.get().to_string(), g)], &[], g);
 
@@ -152,6 +163,7 @@ pub fn main() {
         [
             text("hello, ", g),
             text("weirdo!", g),
+            br,
             div([
                 text("new line cause div", g),
                 div([

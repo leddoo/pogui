@@ -87,6 +87,8 @@ pub trait IGui {
     fn insert_before_child(&mut self, parent: Node, ref_child: Option<Node>, new_child: Node);
     fn insert_after_child(&mut self, parent: Node, ref_child: Option<Node>, new_child: Node);
 
+    fn replace_child(&mut self, parent: Node, old_child: Node, new_child: Node, keep_alive: bool);
+
     fn remove_child(&mut self, parent: Node, child: Node, keep_alive: bool);
     fn remove_node(&mut self, node: Node, keep_alive: bool);
     fn destroy_node(&mut self, node: Node);
@@ -421,6 +423,11 @@ impl IGui for Gui {
         debug_assert!(self.check_tree());
     }
 
+    fn replace_child(&mut self, parent: Node, old_child: Node, new_child: Node, keep_alive: bool) {
+        self.insert_after_child(parent, Some(old_child), new_child);
+        self.remove_child(parent, old_child, keep_alive);
+    }
+
     fn remove_child(&mut self, parent: Node, child: Node, keep_alive: bool) {
         // clear hover/active.
         if self.hover  == Some(child) { self.hover  = None; }
@@ -486,22 +493,25 @@ impl IGui for Gui {
         }
 
         // get parents & references.
-        // TODO: support None parents.
         let (pa, ra) = {
             let a = a.borrow(self);
-            (a.parent.unwrap(), a.prev_sibling)
+            (a.parent, a.prev_sibling)
         };
         let (pb, rb) = {
             let b = b.borrow(self);
-            (b.parent.unwrap(), b.prev_sibling)
+            (b.parent, b.prev_sibling)
         };
 
-        self.insert_after_child(pa, ra, b);
-        if rb == Some(a) {
-            self.insert_after_child(pb, Some(b), a);
-        }
-        else {
-            self.insert_after_child(pb, rb, a);
+        match (pa, pb) {
+            (Some(pa), Some(pb)) => {
+                self.insert_after_child(pa, ra, b);
+                self.insert_after_child(pb, rb, a);
+            }
+
+            (Some(pa), None)     => self.replace_child(pa, a, b, true),
+            (None,     Some(pb)) => self.replace_child(pb, b, a, true),
+
+            (None, None) => (),
         }
     }
 
