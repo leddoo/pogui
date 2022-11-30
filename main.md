@@ -2,17 +2,13 @@
     - initial api.
 
 - present:
-    - impl api.
-        - tree mutation.
-            - remove from old parent.
-            - verify no duplicates for set children.
-            - clear children.
-        - button rendering issue.
-        - event handlers.
-            - add handler: handler -> handler weak ref.
-            - remove handler.
-        - per-element styling.
-            - set/get.
+    - "insert_child_*before/after*" & `ref_child: Option<Node>`.
+    - verify no duplicates for set children.
+    - fix button rendering issue.
+    - event handlers.
+        - add handler: handler -> handler weak ref.
+        - remove handler.
+    - per-element styling api (set/get).
     - more style props.
         - font family/style.
         - corners.

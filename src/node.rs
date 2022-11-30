@@ -137,6 +137,8 @@ impl NodeData {
 // TREE STRUCTURE
 
 impl NodeData {
+    // TODO: handle duplicates.
+    // TODO: new child was old child (don't destroy).
     pub fn set_children(gui: &mut Gui, this: Node, children: Vec<Node>) {
         // destroy old children.
         let mut at = this.borrow(gui).first_child;
@@ -618,15 +620,8 @@ impl NodeData {
         //println!("{:?} mouse down", self as *const _);
     }
 
-    pub fn on_mouse_up(&mut self, gui: &mut Gui) {
+    pub fn on_mouse_up(&mut self, _gui: &mut Gui) {
         //println!("{:?} mouse up", self as *const _);
-
-        if self.kind == NodeKind::Button && self.active {
-            if let Some(handler) = self.on_click.as_mut() {
-                let mut event = Event {};
-                handler(gui, &mut event);
-            }
-        }
     }
 
     pub fn get_on_click(&self) -> Option<Rc<dyn EventHandler>> {

@@ -121,6 +121,39 @@ pub fn main() {
         gui.append_child(the_list, item);
     }, g);
 
+    let active = Rc::new(Cell::new(None));
+
+    fn mk_button(g: &mut Gui, color: &str, active: &Rc<Cell<Option<Node>>>) -> Node {
+        button([],
+            &[("background_color", color), ("width", "30"), ("height", "30"), ("display", "block")],
+            { let active = active.clone(); move |gui, e| {
+                let this = e.target;
+                if let Some(other) = active.get() {
+                    let other_parent = gui.get_parent(other).unwrap();
+                    let this_parent  = gui.get_parent(this).unwrap();
+                    gui.append_child(other_parent, this);
+                    gui.append_child(this_parent,  other);
+                    gui.set_children(other, []);
+                    active.set(None);
+                }
+                else {
+                    let x = text("x", gui);
+                    gui.set_children(this, [x]);
+                    active.set(Some(this));
+                }
+            }}, g)
+    }
+    let br = mk_button(g, "ff0000", &active);
+    let bg = mk_button(g, "00ff00", &active);
+    let bb = mk_button(g, "0000ff", &active);
+    let bw = mk_button(g, "ffffff", &active);
+    let the_grid = div([
+        div([br], &[], g),
+        div([bg], &[], g),
+        div([bb], &[], g),
+        div([bw], &[], g),
+    ], &[], g);
+
     let the_span = span([text(&state.get().to_string(), g)], &[], g);
 
     let nodes =
@@ -186,6 +219,7 @@ pub fn main() {
             ], g),
             the_list,
             div([add_button], &[], g), // TEMP
+            the_grid,
         ];
     let root = g.root();
     g.set_children(root, nodes);

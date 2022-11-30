@@ -67,6 +67,7 @@ pub use crate::common::Cursor;
 
 
 pub struct Event {
+    pub target: Node,
 }
 
 pub trait EventHandler: Fn(&mut Gui, &mut Event) + 'static {}
@@ -90,6 +91,12 @@ pub trait IGui {
     fn remove_node(&mut self, node: Node, keep_alive: bool);
     fn destroy_node(&mut self, node: Node);
 
+    fn get_parent(&self, node: Node) -> Option<Node>;
+    fn get_first_child(&self, node: Node) -> Option<Node>;
+    fn get_last_child(&self, node: Node) -> Option<Node>;
+    fn get_prev_sibling(&self, node: Node) -> Option<Node>;
+    fn get_next_sibling(&self, node: Node) -> Option<Node>;
+
     fn set_style(&mut self, node: Node, style: Style);
     fn set_text(&mut self, node: Node, text: String);
 
@@ -103,7 +110,7 @@ pub trait IGui {
 
     fn paint(&mut self, rt: &ID2D1RenderTarget);
 
-    fn get_cursor(&mut self) -> Cursor;
+    fn get_cursor(&self) -> Cursor;
 
     fn root(&self) -> Node;
 }
@@ -184,6 +191,10 @@ impl Gui {
 
 
     fn check_tree(&self) -> bool {
+        // check hover/active refs are valid.
+        if let Some(hover)  = self.hover  { hover.borrow(self); }
+        if let Some(active) = self.active { active.borrow(self); }
+
         let mut visited = vec![false; self.nodes.len()];
 
         for (i, n) in self.nodes.iter().enumerate() {
@@ -191,6 +202,10 @@ impl Gui {
 
             let this = Node { index: i as u32, gen: n.gen };
             let d = n.data.borrow();
+
+            // check active/hover.
+            if d.hover  { assert_eq!(self.hover,  Some(this)) }
+            if d.active { assert_eq!(self.active, Some(this)) }
 
             // check siblings (technically redundant).
             if d.parent.is_some() {
@@ -267,7 +282,13 @@ impl IGui for Gui {
         NodeData::set_children(self, parent, children.into_iter().collect());
     }
 
+
     fn prepend_child(&mut self, parent: Node, new_child: Node) {
+        // remove from old parent.
+        if let Some(old_parent) = self.get_parent(new_child) {
+            self.remove_child(old_parent, new_child, true);
+        }
+
         let mut p = parent.borrow_mut(self);
         let mut n = new_child.borrow_mut(self);
         assert_eq!(n.parent, None);
@@ -291,6 +312,11 @@ impl IGui for Gui {
     }
 
     fn append_child(&mut self, parent: Node, new_child: Node) {
+        // remove from old parent.
+        if let Some(old_parent) = self.get_parent(new_child) {
+            self.remove_child(old_parent, new_child, true);
+        }
+
         let mut p = parent.borrow_mut(self);
         let mut n = new_child.borrow_mut(self);
         assert_eq!(n.parent, None);
@@ -314,6 +340,11 @@ impl IGui for Gui {
     }
 
     fn insert_before_child(&mut self, parent: Node, ref_child: Node, new_child: Node) {
+        // remove from old parent.
+        if let Some(old_parent) = self.get_parent(new_child) {
+            self.remove_child(old_parent, new_child, true);
+        }
+
         let mut p = parent.borrow_mut(self);
         let mut r = ref_child.borrow_mut(self);
         let mut n = new_child.borrow_mut(self);
@@ -341,6 +372,11 @@ impl IGui for Gui {
     }
 
     fn insert_after_child(&mut self, parent: Node, ref_child: Node, new_child: Node) {
+        // remove from old parent.
+        if let Some(old_parent) = self.get_parent(new_child) {
+            self.remove_child(old_parent, new_child, true);
+        }
+
         let mut p = parent.borrow_mut(self);
         let mut r = ref_child.borrow_mut(self);
         let mut n = new_child.borrow_mut(self);
@@ -373,7 +409,7 @@ impl IGui for Gui {
         if self.active == Some(child) { self.active = None; }
 
         let mut p = parent.borrow_mut(self);
-        let c = child.borrow(self);
+        let mut c = child.borrow_mut(self);
         assert_eq!(c.parent, Some(parent)); // TEMP
 
         if let Some(prev) = c.prev_sibling {
@@ -395,6 +431,12 @@ impl IGui for Gui {
             assert_eq!(p.last_child, Some(child));
             p.last_child = c.prev_sibling;
         }
+
+        c.hover  = false;
+        c.active = false;
+        c.parent = None;
+        c.next_sibling = None;
+        c.prev_sibling = None;
 
         drop((c, p));
 
@@ -418,6 +460,28 @@ impl IGui for Gui {
 
     fn destroy_node(&mut self, node: Node) {
         self.remove_node(node, false);
+    }
+
+
+    #[inline]
+    fn get_parent(&self, node: Node) -> Option<Node> {
+        node.borrow(self).parent
+    }
+    #[inline]
+    fn get_first_child(&self, node: Node) -> Option<Node> {
+        node.borrow(self).first_child
+    }
+    #[inline]
+    fn get_last_child(&self, node: Node) -> Option<Node> {
+        node.borrow(self).last_child
+    }
+    #[inline]
+    fn get_prev_sibling(&self, node: Node) -> Option<Node> {
+        node.borrow(self).prev_sibling
+    }
+    #[inline]
+    fn get_next_sibling(&self, node: Node) -> Option<Node> {
+        node.borrow(self).next_sibling
     }
 
 
@@ -499,10 +563,12 @@ impl IGui for Gui {
     }
 
     fn on_mouse_up(&mut self) {
-        if let Some(hover) = self.hover.clone() {
-            let handler = hover.borrow(self).get_on_click();
-            if let Some(handler) = handler {
-                handler(self, &mut Event {});
+        if let Some(hover) = self.hover {
+            if self.active == Some(hover) {
+                let handler = hover.borrow(self).get_on_click();
+                if let Some(handler) = handler {
+                    handler(self, &mut Event { target: hover });
+                }
             }
         }
 
@@ -550,7 +616,7 @@ impl IGui for Gui {
         root.paint(self, rt);
     }
 
-    fn get_cursor(&mut self) -> Cursor {
+    fn get_cursor(&self) -> Cursor {
         self.hover
         .map(|h| h.borrow(self).cursor())
         .unwrap_or(Cursor::Default)
