@@ -34,13 +34,24 @@ impl NodeKind {
             Text    => Inline,
         }
     }
+
+    #[inline]
+    pub const fn takes_focus(self) -> bool {
+        use NodeKind::*;
+        match self {
+            Div     => false,
+            Button  => true,
+            Span    => false,
+            Text    => false,
+        }
+    }
 }
 
 
 pub(crate) struct NodeData {
     pub kind: NodeKind,
 
-    pub this:         Option<Node>,
+    pub this:         Node,
     pub parent:       Option<Node>,
     pub first_child:  Option<Node>,
     pub last_child:   Option<Node>,
@@ -57,6 +68,7 @@ pub(crate) struct NodeData {
 
     pub hover:  bool,
     pub active: bool,
+    pub focus:  bool,
 
     pub style: Style,
     pub computed_style: Style,
@@ -99,6 +111,10 @@ impl NodeData {
         })
         .unwrap_or(self.kind.default_display())
     }
+
+    pub fn takes_focus(&self) -> bool {
+        self.kind.takes_focus()
+    }
 }
 
 
@@ -114,10 +130,10 @@ enum RenderElement {
 
 
 impl NodeData {
-    pub fn new(kind: NodeKind) -> NodeData {
+    pub fn new(kind: NodeKind, this: Node) -> NodeData {
         NodeData {
             kind,
-            this: None,
+            this,
             parent: None,
             first_child: None, last_child: None,
             next_sibling: None, prev_sibling: None,
@@ -128,6 +144,7 @@ impl NodeData {
             scrolling: [false, false],
             hover: false,
             active: false,
+            focus: false,
             style: Style::new(),
             computed_style: Style::new(),
             render_children: vec![],
@@ -186,7 +203,6 @@ impl NodeData {
         }
 
         let mut me = this.borrow_mut(gui);
-        me.this = Some(this);
         me.first_child = first_child;
         me.last_child  = prev_child;
     }
@@ -957,6 +973,23 @@ impl NodeData {
                     bottom: (self.pos[1] + self.size[1]).round(),
                 };
                 rt.FillRectangle(&rect, &brush);
+            }
+        }
+
+        if self.focus {
+            unsafe {
+                let color = D2D1_COLOR_F { r: 0.5, g: 0.8, b: 1.0, a: 1.0 };
+                let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
+
+                let width = 2.0;
+
+                let rect = D2D_RECT_F {
+                    left:   self.pos[0].round() - 1.0,
+                    top:    self.pos[1].round() - 1.0,
+                    right:  (self.pos[0] + self.size[0]).round() + 1.0,
+                    bottom: (self.pos[1] + self.size[1]).round() + 1.0,
+                };
+                rt.DrawRectangle(&rect, &brush, width, None);
             }
         }
     }

@@ -1,16 +1,17 @@
 - focus:
-    - ?
+    - focus.
 
 - present:
-    - h2c?
-
-- horizon:
-    - flex layout.
     - focus.
         - passive focus:
             - click page, tab navigation starts there.
             - maybe used for keyboard scrolling?
             - doesn't set `focus` or `focus-visible`.
+        - events.
+        - scrollbars -> takes focus.
+
+- horizon:
+    - flex layout.
     - event handlers.
         - more events.
         - multiple handlers.
@@ -24,9 +25,11 @@
     - set scroll pos util.
     - set hover, active, focus util.
     - some clear conventions for NodeData state ~ caching.
+    - how to release node memory?
 
 
 - things that need doing:
+    - canvas node for custom ui.
     - event propagation.
     - scrollbar "buttons".
         - thinking impl as nodes.

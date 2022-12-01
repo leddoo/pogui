@@ -16,6 +16,7 @@ pub struct Gui {
 
     hover:  Option<Node>,
     active: Option<Node>,
+    focus:  Option<Node>,
 
     window_size: [f32; 2],
 }
@@ -48,6 +49,7 @@ impl Node {
         let result = &nodes[self.index as usize];
         assert_eq!(self.gen, result.gen);
         assert!(result.used);
+        debug_assert_eq!(result.data.borrow().this, self);
         result
     }
 
@@ -106,6 +108,10 @@ pub trait IGui {
 
     fn set_on_click<H: EventHandler>(&mut self, node: Node, handler: H);
 
+    fn on_key_down(&mut self, vk: u32);
+    fn on_key_up(&mut self, vk: u32);
+    fn on_char(&mut self, cp: char, shift_down: bool);
+
     fn on_mouse_move(&mut self, x: f32, y: f32);
     fn on_mouse_down(&mut self);
     fn on_mouse_up(&mut self);
@@ -134,9 +140,13 @@ impl Gui {
             root: fake_root,
             hover:  None,
             active: None,
+            focus:  None,
             window_size: [0.0; 2],
         };
         gui.root = gui.alloc_node(NodeKind::Div);
+        // TEMP: invariant: all nodes in the tree have a parent.
+        // todo: use a special constant? use a valid, dummy parent root node?
+        gui.root.borrow_mut(&gui).parent = Some(fake_root);
         gui
     }
 }
@@ -150,7 +160,7 @@ impl Gui {
                 let node = Node { index: i as u32, gen: n.gen };
                 let mut d = n.data.borrow_mut();
                 d.kind = kind;
-                d.this = Some(node);
+                d.this = node;
                 n.used = true;
                 return node;
             }
@@ -159,7 +169,7 @@ impl Gui {
         let gen = NonZeroU32::new(1).unwrap();
         let node = Node { index: self.nodes.len() as u32, gen };
         self.nodes.push(NodeWrapper {
-            data: RefCell::new(NodeData::new(kind)),
+            data: RefCell::new(NodeData::new(kind, node)),
             gen,
             used: true,
         });
@@ -170,6 +180,7 @@ impl Gui {
         // clear hover/active.
         if self.hover  == Some(node) { self.hover  = None; }
         if self.active == Some(node) { self.active = None; }
+        if self.focus  == Some(node) { self.focus  = None; }
 
         // free children.
         let mut at = node.borrow(self).first_child;
@@ -188,8 +199,8 @@ impl Gui {
         assert!(n.used);
 
         let mut d = n.data.borrow_mut();
-        println!("destory {:?}", d.kind);
-        *d = NodeData::new(NodeKind::Div);
+        println!("destroy {:?}", d.kind);
+        *d = NodeData::new(NodeKind::Div, Node { index: u32::MAX, gen: NonZeroU32::new(u32::MAX).unwrap() });
         n.gen = NonZeroU32::new(n.gen.get() + 1).unwrap();
         n.used = false;
     }
@@ -197,8 +208,9 @@ impl Gui {
 
     fn check_tree(&self) -> bool {
         // check hover/active refs are valid.
-        if let Some(hover)  = self.hover  { hover.borrow(self); }
-        if let Some(active) = self.active { active.borrow(self); }
+        if let Some(hover)  = self.hover  { let h = hover.borrow(self);  assert_ne!(h.parent, None); }
+        if let Some(active) = self.active { let a = active.borrow(self); assert_ne!(a.parent, None); }
+        if let Some(focus)  = self.focus  { let f = focus.borrow(self);  assert_ne!(f.parent, None); }
 
         let mut visited = vec![false; self.nodes.len()];
 
@@ -207,6 +219,7 @@ impl Gui {
 
             let this = Node { index: i as u32, gen: n.gen };
             let d = n.data.borrow();
+            assert_eq!(d.this, this);
 
             // check active/hover.
             if d.hover  { assert_eq!(self.hover,  Some(this)) }
@@ -260,6 +273,10 @@ impl Gui {
             }
         }
 
+        let root_index = self.root.index as usize;
+        assert!(visited[root_index] == false);
+        visited[root_index] = true;
+
         for (i, n) in self.nodes.iter().enumerate() {
             if n.used {
                 let d = n.data.borrow();
@@ -268,6 +285,69 @@ impl Gui {
         }
 
         true
+    }
+
+    fn next_post_order<P: Fn(&NodeData) -> bool>(&self, node: Node, p: P) -> Option<Node> {
+        let mut at = node;
+        while at != self.root {
+            let d = at.borrow(self);
+            let parent = d.parent.unwrap();
+            let next   = d.next_sibling;
+            drop(d);
+
+            if let Some(next) = next {
+                at = next;
+
+                while let Some(first_child) = at.borrow(self).first_child {
+                    at = first_child;
+                }
+            }
+            else {
+                at = parent;
+            }
+
+            if p(&at.borrow(self)) {
+                return Some(at);
+            }
+        }
+        None
+    }
+
+    fn prev_post_order<P: Fn(&NodeData) -> bool>(&self, node: Node, p: P) -> Option<Node> {
+        let mut at = node;
+        loop {
+            let d = at.borrow(self);
+            let last_child = d.last_child;
+            let mut parent = d.parent.unwrap();
+            let mut prev   = d.prev_sibling;
+            drop(d);
+
+            if let Some(last_child) = last_child {
+                at = last_child;
+            }
+            else {
+                if at == self.root {
+                    return None;
+                }
+
+                // go up, until we can go left.
+                while prev.is_none() {
+                    at = parent;
+                    if at == self.root {
+                        return None;
+                    }
+
+                    let d = at.borrow(self);
+                    parent = d.parent.unwrap();
+                    prev   = d.prev_sibling;
+                }
+                at = prev.unwrap();
+            }
+
+            if p(&at.borrow(self)) {
+                return Some(at);
+            }
+        }
     }
 
     fn clamp_scroll_offsets(&mut self) {
@@ -448,6 +528,7 @@ impl IGui for Gui {
         // clear hover/active.
         if self.hover  == Some(child) { self.hover  = None; }
         if self.active == Some(child) { self.active = None; }
+        if self.focus  == Some(child) { self.focus  = None; }
 
         let mut p = parent.borrow_mut(self);
         let mut c = child.borrow_mut(self);
@@ -569,6 +650,44 @@ impl IGui for Gui {
         d.set_on_click(Rc::new(handler));
     }
 
+    fn on_key_down(&mut self, vk: u32) {
+        let _ = vk;
+    }
+
+    fn on_key_up(&mut self, vk: u32) {
+        let _ = vk;
+    }
+
+    fn on_char(&mut self, cp: char, shift_down: bool) {
+        // TEMP: why, just why, windows?
+        if cp == '\r' {
+            if let Some(focus) = self.focus {
+                let handler = focus.borrow(self).get_on_click();
+                if let Some(handler) = handler {
+                    handler(self, &mut Event { target: focus });
+                }
+            }
+        }
+
+        if cp == '\t' {
+            if let Some(focus) = self.focus {
+                let next_focus = 
+                    if !shift_down {
+                        self.next_post_order(focus, NodeData::takes_focus)
+                    }
+                    else {
+                        self.prev_post_order(focus, NodeData::takes_focus)
+                    };
+                if let Some(next_focus) = next_focus {
+                    // TEMP
+                    focus.borrow_mut(self).focus = false;
+                    next_focus.borrow_mut(self).focus = true;
+                    self.focus = Some(next_focus);
+                }
+            }
+        }
+    }
+
     fn on_mouse_move(&mut self, x: f32, y: f32) {
         // TEMP
         {
@@ -621,9 +740,27 @@ impl IGui for Gui {
         // cause other programs can send them directly, right?
         assert!(self.active.is_none());
 
+        // TEMP
+        if let Some(focus) = self.focus {
+            focus.borrow_mut(self).focus = false;
+        }
+
         if let Some(hover) = self.hover {
             let mut h = hover.borrow_mut(self);
             h.on_mouse_down();
+
+            if h.takes_focus() {
+                h.focus = true;
+                drop(h);
+                self.focus = Some(hover);
+            }
+            else {
+                drop(h);
+                self.focus = None;
+            }
+        }
+        else {
+            self.focus = None;
         }
 
         let new_active = self.hover;

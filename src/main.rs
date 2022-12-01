@@ -313,6 +313,27 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             LRESULT(0)
         },
 
+        WM_KEYDOWN => {
+            main.gui.on_key_down(wparam.0 as u32);
+            InvalidateRect(window, None, false);
+            LRESULT(0)
+        }
+
+        WM_KEYUP => {
+            main.gui.on_key_up(wparam.0 as u32);
+            InvalidateRect(window, None, false);
+            LRESULT(0)
+        }
+
+        WM_CHAR => {
+            let shift_down = unsafe { GetKeyState(VK_SHIFT.0 as i32) & (1u16 << 15) as i16 != 0 };
+
+            main.gui.on_char((wparam.0 as u32).try_into().unwrap(), shift_down);
+
+            InvalidateRect(window, None, false);
+            LRESULT(0)
+        }
+
         WM_LBUTTONDOWN => {
             main.gui.on_mouse_down();
 
