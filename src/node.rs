@@ -447,11 +447,6 @@ impl NodeData {
 
                     break;
                 }
-
-            let viewport_x = self.size[0] - scrollbar_size(self.scrolling[1]);
-            let viewport_y = self.size[1] - scrollbar_size(self.scrolling[0]);
-            self.scroll_pos[0] = self.scroll_pos[0].clamp(0.0, (self.content_size[0] - viewport_x).max(0.0));
-            self.scroll_pos[1] = self.scroll_pos[1].clamp(0.0, (self.content_size[1] - viewport_y).max(0.0));
             }
         }
     }

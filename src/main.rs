@@ -155,7 +155,6 @@ pub fn main() {
     let bg = mk_button(g, "00ff00", mk_button_handler(&active, &hidden));
     let bb = mk_button(g, "0000ff", mk_button_handler(&active, &hidden));
     let bw = mk_button(g, "ffffff", mk_button_handler(&active, &hidden));
-    let the_grid = div([bb, bg, bw], &[], g);
 
     let the_span = span([text(&state.get().to_string(), g)], &[], g);
 
@@ -223,7 +222,7 @@ pub fn main() {
             ], g),
             the_list,
             add_button,
-            the_grid,
+            bb, bg, bw,
             div([text("this bish has sum phat content. she wayy too thicc to fit. an dats whai da lines be scrollin. anyway, here's some more text: The high-order word indicates the distance the wheel is rotated, expressed in multiples or divisions of WHEEL_DELTA, which is 120. A positive value indicates that the wheel was rotated forward, away from the user; a negative value indicates that the wheel was rotated backward, toward the user.", g)],
                 &[("width", "300"), ("height", "100"), ("background_color", "20c0d0"), ("overflow_y", "auto")], g),
         ];

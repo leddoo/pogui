@@ -269,6 +269,21 @@ impl Gui {
 
         true
     }
+
+    fn clamp_scroll_offsets(&mut self) {
+        for node in self.nodes.iter() {
+            if !node.used {
+                continue;
+            }
+
+            let mut me = node.data.borrow_mut();
+
+            let viewport_x = me.size[0] - scrollbar_size(me.scrolling[1]);
+            let viewport_y = me.size[1] - scrollbar_size(me.scrolling[0]);
+            me.scroll_pos[0] = me.scroll_pos[0].clamp(0.0, (me.content_size[0] - viewport_x).max(0.0));
+            me.scroll_pos[1] = me.scroll_pos[1].clamp(0.0, (me.content_size[1] - viewport_y).max(0.0));
+        }
+    }
 }
 
 impl IGui for Gui {
@@ -561,8 +576,9 @@ impl IGui for Gui {
             let mut root = self.root.borrow_mut(self);
             root.style(self, &Style::new());
             root.render_children(self.ctx, self);
-            root.layout(self, LayoutBox::tight([w/2.0, h]));
+            root.layout(self, LayoutBox::tight([(w/2.0).ceil(), h]));
         }
+        self.clamp_scroll_offsets();
 
         let old_hover = self.hover;
         let new_hover = {
@@ -651,21 +667,6 @@ impl IGui for Gui {
             return
         }
 
-        /*
-        let mut root = self.root.as_ref().unwrap().borrow_mut();
-        // TEMP
-        if self.window_size == [0.0, 0.0] {
-            let t0 = std::time::Instant::now();
-            root.style(&Style::new());
-            root.render_children();
-            println!("style {:?}", t0.elapsed());
-        }
-
-        let t0 = std::time::Instant::now();
-        root.layout(LayoutBox::tight([w/2.0, h]));
-        println!("layout {:?}", t0.elapsed());
-        */
-
         self.window_size = new_size;
     }
 
@@ -677,6 +678,9 @@ impl IGui for Gui {
         root.style(self, &Style::new());
         root.render_children(self.ctx, self);
         root.layout(self, LayoutBox::tight([(w/2.0).ceil(), h]));
+        drop(root);
+        self.clamp_scroll_offsets();
+        let mut root = self.root.borrow_mut(self);
         root.paint(self, rt);
     }
 
