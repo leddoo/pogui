@@ -7,6 +7,12 @@ use crate::text::*;
 use crate::gui::*;
 
 
+pub const SCROLLBAR_WIDTH: f32 = 20.0;
+pub fn scrollbar_size(enabled: bool) -> f32 {
+    enabled as i32 as f32 * SCROLLBAR_WIDTH
+}
+
+
 impl NodeKind {
     #[inline]
     pub const fn is_container(self) -> bool {
@@ -44,6 +50,10 @@ pub(crate) struct NodeData {
     pub pos:  [f32; 2],
     pub size: [f32; 2],
     pub baseline: f32,
+
+    pub scroll_pos:   [f32; 2],
+    pub content_size: [f32; 2],
+    pub scrolling:    [bool; 2],
 
     pub hover:  bool,
     pub active: bool,
@@ -113,6 +123,9 @@ impl NodeData {
             next_sibling: None, prev_sibling: None,
             pos: [0.0, 0.0], size: [0.0, 0.0],
             baseline: 0.0,
+            scroll_pos: [0.0, 0.0],
+            content_size: [0.0, 0.0],
+            scrolling: [false, false],
             hover: false,
             active: false,
             style: Style::new(),
@@ -404,117 +417,159 @@ impl NodeData {
                             }
                         }
 
+                        max_width = max_width.ceil();
                         max_width = lbox.clamp_width(max_width);
                         max_width
                     }
                 };
+                self.size[0] = this_width;
 
-                let mut last_baseline = 0.0;
+                self.scrolling = [false, false];
+                loop {
+                    let the_width = this_width - scrollbar_size(self.scrolling[1]);
+                    self.lines_layout(gui, the_width, lbox);
 
-                let mut cursor = 0.0;
-                for child in &mut self.render_children {
-                    match child {
-                        RenderElement::Element { ptr } => {
-                            // assume "elements" are block elements.
-                            let mut child = ptr.borrow_mut(gui);
-
-                            let mut child_lbox = LayoutBox {
-                                min: [this_width, 0.0],
-                                max: [this_width, f32::INFINITY],
-                            };
-
-
-                            // TODO: what about fit-content?
-                            // should this really be here?
-                            // if not, what layout box to pass down & how does child know
-                            // that it doesn't have to fit in the lbox?
-
-                            // TODO: are loose layout boxes even a thing?
-                            // maybe with other layouts?
-
-                            let width_prop     = child.computed_style.get("width").map(|v| v.parse::<f32>().unwrap());
-                            let min_width_prop = child.computed_style.get("min_width").map(|v| v.parse::<f32>().unwrap());
-                            let max_width_prop = child.computed_style.get("max_width").map(|v| v.parse::<f32>().unwrap());
-
-                            let child_min_width = min_width_prop.unwrap_or(0.0);
-                            let child_max_width = max_width_prop.unwrap_or(f32::INFINITY);
-                            // catch invalid props.
-                            let child_max_width = child_max_width.max(child_min_width);
-
-                            // if width is specified.
-                            if let Some(width) = width_prop {
-                                // use that width, clamped to child's min/max props.
-                                let width = width.clamp(child_min_width, child_max_width);
-                                child_lbox.min[0] = width;
-                                child_lbox.max[0] = width;
-                            }
-                            else {
-                                // use parent (this) width, clamped to child's min/max props.
-                                let width = this_width.clamp(child_min_width, child_max_width);
-                                child_lbox.min[0] = width;
-                                child_lbox.max[0] = width;
-                            }
-
-                            let height_prop     = child.computed_style.get("height").map(|v| v.parse::<f32>().unwrap());
-                            let min_height_prop = child.computed_style.get("min_height").map(|v| v.parse::<f32>().unwrap());
-                            let max_height_prop = child.computed_style.get("max_height").map(|v| v.parse::<f32>().unwrap());
-
-                            let child_min_height = min_height_prop.unwrap_or(0.0);
-                            let child_max_height = max_height_prop.unwrap_or(f32::INFINITY);
-                            // catch invalid props.
-                            let child_max_height = child_max_height.max(child_min_height);
-
-                            if let Some(height) = height_prop {
-                                let height = height.clamp(child_min_height, child_max_height);
-                                child_lbox.min[1] = height;
-                                child_lbox.max[1] = height;
-                            }
-                            else {
-                                child_lbox.min[1] = child_min_height;
-                                child_lbox.max[1] = child_max_height;
-                            }
-
-                            child.layout(gui, child_lbox);
-
-                            let height = child.size[1];
-                            child.pos = [0.0, cursor];
-                            cursor += height;
-
-                            last_baseline = cursor - child.baseline;
-                        }
-
-                        RenderElement::Text { pos, layout, objects } => {
-                            for (i, obj) in objects.iter().enumerate() {
-                                let mut o = obj.borrow_mut(gui);
-                                o.layout(gui, LayoutBox::any());
-
-                                layout.set_object_size(i, o.size);
-                                layout.set_object_baseline(i, o.baseline);
-                            }
-
-                            layout.set_layout_width(this_width);
-                            layout.layout();
-
-                            for (i, obj) in objects.iter().enumerate() {
-                                let mut o = obj.borrow_mut(gui);
-                                o.pos = layout.get_object_pos(i);
-                            }
-
-                            let last_line = layout.line_metrics(layout.line_count() - 1);
-                            last_baseline = cursor + last_line.pos[1] + last_line.baseline;
-
-                            let height = layout.actual_size()[1];
-                            *pos = [0.0, cursor];
-                            cursor += height;
+                    if !self.scrolling[1] {
+                        let viewport = self.size[1] - scrollbar_size(self.scrolling[0]);
+                        if self.content_size[1] > viewport {
+                            self.scrolling[1] = true;
+                            continue;
                         }
                     }
+
+                    if !self.scrolling[0] {
+                        let viewport = self.size[0] - scrollbar_size(self.scrolling[1]);
+                        if self.content_size[0] > viewport {
+                            self.scrolling[0] = true;
+                            continue;
+                        }
+                    }
+
+                    break;
                 }
 
-                let height = lbox.clamp_height(cursor.ceil());
-                self.size = [this_width, height];
-                self.baseline = cursor - last_baseline;
+            let viewport_x = self.size[0] - scrollbar_size(self.scrolling[1]);
+            let viewport_y = self.size[1] - scrollbar_size(self.scrolling[0]);
+            self.scroll_pos[0] = self.scroll_pos[0].clamp(0.0, (self.content_size[0] - viewport_x).max(0.0));
+            self.scroll_pos[1] = self.scroll_pos[1].clamp(0.0, (self.content_size[1] - viewport_y).max(0.0));
             }
         }
+    }
+
+    fn lines_layout(&mut self, gui: &Gui, the_width: f32, lbox: LayoutBox) {
+        let mut last_baseline = 0.0;
+        let mut max_width = 0.0f32;
+
+        let mut cursor = 0.0;
+        for child in &mut self.render_children {
+            match child {
+                RenderElement::Element { ptr } => {
+                    // assume "elements" are block elements.
+                    let mut child = ptr.borrow_mut(gui);
+
+                    let mut child_lbox = LayoutBox {
+                        min: [the_width, 0.0],
+                        max: [the_width, f32::INFINITY],
+                    };
+
+
+                    // TODO: what about fit-content?
+                    // should this really be here?
+                    // if not, what layout box to pass down & how does child know
+                    // that it doesn't have to fit in the lbox?
+
+                    // TODO: are loose layout boxes even a thing?
+                    // maybe with other layouts?
+
+                    let width_prop     = child.computed_style.get("width").map(|v| v.parse::<f32>().unwrap());
+                    let min_width_prop = child.computed_style.get("min_width").map(|v| v.parse::<f32>().unwrap());
+                    let max_width_prop = child.computed_style.get("max_width").map(|v| v.parse::<f32>().unwrap());
+
+                    let child_min_width = min_width_prop.unwrap_or(0.0);
+                    let child_max_width = max_width_prop.unwrap_or(f32::INFINITY);
+                    // catch invalid props.
+                    let child_max_width = child_max_width.max(child_min_width);
+
+                    // if width is specified.
+                    if let Some(width) = width_prop {
+                        // use that width, clamped to child's min/max props.
+                        let width = width.clamp(child_min_width, child_max_width);
+                        child_lbox.min[0] = width;
+                        child_lbox.max[0] = width;
+                    }
+                    else {
+                        // use parent (this) width, clamped to child's min/max props.
+                        let width = the_width.clamp(child_min_width, child_max_width);
+                        child_lbox.min[0] = width;
+                        child_lbox.max[0] = width;
+                    }
+
+                    let height_prop     = child.computed_style.get("height").map(|v| v.parse::<f32>().unwrap());
+                    let min_height_prop = child.computed_style.get("min_height").map(|v| v.parse::<f32>().unwrap());
+                    let max_height_prop = child.computed_style.get("max_height").map(|v| v.parse::<f32>().unwrap());
+
+                    let child_min_height = min_height_prop.unwrap_or(0.0);
+                    let child_max_height = max_height_prop.unwrap_or(f32::INFINITY);
+                    // catch invalid props.
+                    let child_max_height = child_max_height.max(child_min_height);
+
+                    if let Some(height) = height_prop {
+                        let height = height.clamp(child_min_height, child_max_height);
+                        child_lbox.min[1] = height;
+                        child_lbox.max[1] = height;
+                    }
+                    else {
+                        child_lbox.min[1] = child_min_height;
+                        child_lbox.max[1] = child_max_height;
+                    }
+
+                    child.layout(gui, child_lbox);
+
+                    max_width = max_width.max(child.size[0]);
+
+                    let height = child.size[1];
+                    child.pos = [0.0, cursor];
+                    cursor += height;
+
+                    last_baseline = cursor - child.baseline;
+                }
+
+                RenderElement::Text { pos, layout, objects } => {
+                    for (i, obj) in objects.iter().enumerate() {
+                        let mut o = obj.borrow_mut(gui);
+                        o.layout(gui, LayoutBox::any());
+
+                        layout.set_object_size(i, o.size);
+                        layout.set_object_baseline(i, o.baseline);
+                    }
+
+                    layout.set_layout_width(the_width);
+                    layout.layout();
+
+                    for (i, obj) in objects.iter().enumerate() {
+                        let mut o = obj.borrow_mut(gui);
+                        o.pos = layout.get_object_pos(i);
+                    }
+
+                    let last_line = layout.line_metrics(layout.line_count() - 1);
+                    last_baseline = cursor + last_line.pos[1] + last_line.baseline;
+
+                    let size = layout.actual_size();
+
+                    max_width = max_width.max(size[0]);
+
+                    *pos = [0.0, cursor];
+                    cursor += size[1];
+                }
+            }
+        }
+
+        let content_size = [max_width.ceil(), cursor.ceil()];
+
+        self.size[1] = lbox.clamp_height(content_size[1]);
+        self.baseline = cursor - last_baseline;
+
+        self.content_size = content_size;
     }
 }
 
@@ -530,6 +585,20 @@ impl NodeData {
 
         let x = x - me.pos[0];
         let y = y - me.pos[1];
+
+        let hit_me =
+               x >= 0.0 && x < me.size[0]
+            && y >= 0.0 && y < me.size[1];
+
+        // clip_content approximation.
+        if !hit_me && (me.scrolling[0] || me.scrolling[1]) {
+            return None;
+        }
+
+        // TODO: hit scrollbar -> hit me.
+
+        let x = x + me.scroll_pos[0];
+        let y = y + me.scroll_pos[1];
 
         let mut cursor = 0;
         // TODO: technically rev()
@@ -576,8 +645,7 @@ impl NodeData {
         }
 
         // TODO: closest cursor position.
-        if x >= 0.0 && x < me.size[0]
-        && y >= 0.0 && y < me.size[1] {
+        if hit_me {
             return Some((this.clone(), 0));
         }
 
@@ -618,6 +686,24 @@ impl NodeData {
 
     pub fn on_mouse_down(&mut self) {
         //println!("{:?} mouse down", self as *const _);
+    }
+
+    pub fn on_mouse_wheel(&mut self, delta: f32, shift_down: bool) {
+        let delta = delta.round();
+
+        if !shift_down && self.scrolling[1] {
+            let viewport = self.size[1] - scrollbar_size(self.scrolling[0]);
+
+            let pos = self.scroll_pos[1] - delta;
+            self.scroll_pos[1] = pos.clamp(0.0, self.content_size[1] - viewport);
+        }
+
+        if shift_down && self.scrolling[0] {
+            let viewport = self.size[0] - scrollbar_size(self.scrolling[1]);
+
+            let pos = self.scroll_pos[0] - delta;
+            self.scroll_pos[0] = pos.clamp(0.0, self.content_size[0] - viewport);
+        }
     }
 
     pub fn on_mouse_up(&mut self, _gui: &mut Gui) {
@@ -684,12 +770,25 @@ impl NodeData {
             }
         }
 
+        // clip_content approximation.
+        if self.scrolling[0] || self.scrolling[1] {unsafe{
+            let rect = D2D_RECT_F {
+                left:   self.pos[0].round(),
+                top:    self.pos[1].round(),
+                right:  (self.pos[0] + self.size[0]).round(),
+                bottom: (self.pos[1] + self.size[1]).round(),
+            };
+            rt.PushAxisAlignedClip(&rect, windows::Win32::Graphics::Direct2D::D2D1_ANTIALIAS_MODE_ALIASED);
+        }}
+
         let mut old_tfx = Default::default();
         unsafe {
             rt.GetTransform(&mut old_tfx);
 
             // need to round here, else rounding in children is meaningless.
-            let new_tfx = Matrix3x2::translation(self.pos[0].round(), self.pos[1].round()) * old_tfx;
+            let x = self.pos[0] - self.scroll_pos[0];
+            let y = self.pos[1] - self.scroll_pos[1];
+            let new_tfx = Matrix3x2::translation(x.round(), y.round()) * old_tfx;
             rt.SetTransform(&new_tfx);
         }
 
@@ -783,6 +882,87 @@ impl NodeData {
 
         unsafe {
             rt.SetTransform(&old_tfx);
+        }
+
+        // clip_content approximation.
+        if self.scrolling[0] || self.scrolling[1] {unsafe{
+            rt.PopAxisAlignedClip();
+        }}
+
+
+        // scroll bars.
+        if self.scrolling[0] {
+            unsafe {
+                let color = D2D1_COLOR_F { r: 0.8, g: 0.8, b: 0.8, a: 1.0 };
+                let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
+
+                let offset_thing = scrollbar_size(self.scrolling[0]);
+
+                let rect = D2D_RECT_F {
+                    left:   self.pos[0].round(),
+                    top:    (self.pos[1] + self.size[1]).round() - SCROLLBAR_WIDTH,
+                    right:  (self.pos[0] + self.size[0]).round() - offset_thing,
+                    bottom: (self.pos[1] + self.size[1]).round(),
+                };
+                rt.FillRectangle(&rect, &brush);
+                
+                let viewport = self.size[0] - scrollbar_size(self.scrolling[1]);
+                let hi = self.scroll_pos[0] / self.content_size[0];
+                let lo = (self.scroll_pos[0] + viewport) / self.content_size[0];
+
+                let c2 = D2D1_COLOR_F { r: 0.6, g: 0.6, b: 0.6, a: 1.0 };
+                brush.SetColor(&c2);
+                let r2 = D2D_RECT_F {
+                    left:  (1.0 - hi)*rect.left + hi*rect.right,
+                    right: (1.0 - lo)*rect.left + lo*rect.right,
+                    ..rect
+                };
+                rt.FillRectangle(&r2, &brush);
+            }
+        }
+        if self.scrolling[1] {
+            unsafe {
+                let color = D2D1_COLOR_F { r: 0.8, g: 0.8, b: 0.8, a: 1.0 };
+                let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
+
+                let offset_thing = scrollbar_size(self.scrolling[0]);
+
+                let rect = D2D_RECT_F {
+                    left:   (self.pos[0] + self.size[0]).round() - SCROLLBAR_WIDTH,
+                    top:    self.pos[1].round(),
+                    right:  (self.pos[0] + self.size[0]).round(),
+                    bottom: (self.pos[1] + self.size[1]).round() - offset_thing,
+                };
+                rt.FillRectangle(&rect, &brush);
+
+                let viewport = self.size[1] - scrollbar_size(self.scrolling[0]);
+                let hi = self.scroll_pos[1] / self.content_size[1];
+                let lo = (self.scroll_pos[1] + viewport) / self.content_size[1];
+
+                let c2 = D2D1_COLOR_F { r: 0.6, g: 0.6, b: 0.6, a: 1.0 };
+                brush.SetColor(&c2);
+                let r2 = D2D_RECT_F {
+                    top:    (1.0 - hi)*rect.top + hi*rect.bottom,
+                    bottom: (1.0 - lo)*rect.top + lo*rect.bottom,
+                    ..rect
+                };
+                rt.FillRectangle(&r2, &brush);
+            }
+        }
+
+        if self.scrolling[0] && self.scrolling[1] {
+            unsafe {
+                let color = D2D1_COLOR_F { r: 0.8, g: 0.8, b: 0.8, a: 1.0 };
+                let brush = rt.CreateSolidColorBrush(&color, None).unwrap();
+
+                let rect = D2D_RECT_F {
+                    left:   (self.pos[0] + self.size[0]).round() - SCROLLBAR_WIDTH,
+                    top:    (self.pos[1] + self.size[1]).round() - SCROLLBAR_WIDTH,
+                    right:  (self.pos[0] + self.size[0]).round(),
+                    bottom: (self.pos[1] + self.size[1]).round(),
+                };
+                rt.FillRectangle(&rect, &brush);
+            }
         }
     }
 }

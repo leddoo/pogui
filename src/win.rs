@@ -12,7 +12,7 @@ pub use windows::{
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::{
-            WindowsAndMessaging::{WNDCLASSW, LoadIconW, IDI_APPLICATION, LoadCursorW, IDC_ARROW, IDC_HAND, IDC_IBEAM, RegisterClassW, WS_OVERLAPPEDWINDOW, WS_VISIBLE, CW_USEDEFAULT, CreateWindowExW, GetClientRect, SetWindowLongPtrW, GWLP_USERDATA, MSG, GetMessageW, TranslateMessage, DispatchMessageW, GetWindowLongPtrW, DefWindowProcW, PostQuitMessage, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_CLOSE, WM_SIZE, WM_PAINT, WM_MOUSEMOVE, WM_SETCURSOR, SetCursor, HCURSOR, HTCLIENT},
+            WindowsAndMessaging::{WNDCLASSW, LoadIconW, IDI_APPLICATION, LoadCursorW, IDC_ARROW, IDC_HAND, IDC_IBEAM, RegisterClassW, WS_OVERLAPPEDWINDOW, WS_VISIBLE, CW_USEDEFAULT, CreateWindowExW, GetClientRect, SetWindowLongPtrW, GWLP_USERDATA, MSG, GetMessageW, TranslateMessage, DispatchMessageW, GetWindowLongPtrW, DefWindowProcW, PostQuitMessage, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_CLOSE, WM_SIZE, WM_PAINT, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_SETCURSOR, SetCursor, HCURSOR, HTCLIENT},
             Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT}
         },
     },

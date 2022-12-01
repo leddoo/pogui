@@ -224,6 +224,8 @@ pub fn main() {
             the_list,
             add_button,
             the_grid,
+            div([text("this bish has sum phat content. she wayy too thicc to fit. an dats whai da lines be scrollin. anyway, here's some more text: The high-order word indicates the distance the wheel is rotated, expressed in multiples or divisions of WHEEL_DELTA, which is 120. A positive value indicates that the wheel was rotated forward, away from the user; a negative value indicates that the wheel was rotated backward, toward the user.", g)],
+                &[("width", "300"), ("height", "100"), ("background_color", "20c0d0"), ("overflow_y", "auto")], g),
         ];
     let root = g.root();
     g.set_children(root, nodes);
@@ -331,6 +333,21 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             let y = hi_u16(lparam.0);
 
             main.gui.on_mouse_move(x as f32, y as f32);
+
+            InvalidateRect(window, None, false);
+            LRESULT(0)
+        }
+
+        WM_MOUSEWHEEL => {
+            let wheel_delta = 120.0;
+            let scale = 30.0;
+            let delta = hi_u16(wparam.0 as isize) as u16 as i16 as i32 as f32 / wheel_delta * scale;
+
+            const MK_SHIFT: u32 = 0x4;
+            let mask = lo_u16(wparam.0 as isize);
+            let shift = mask & MK_SHIFT != 0;
+
+            main.gui.on_mouse_wheel(delta, shift);
 
             InvalidateRect(window, None, false);
             LRESULT(0)

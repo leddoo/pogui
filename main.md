@@ -1,26 +1,55 @@
 - focus:
-    - initial api.
+    - ?
 
 - present:
+    - h2c?
+
+- horizon:
+    - flex layout.
+    - focus.
+        - passive focus:
+            - click page, tab navigation starts there.
+            - maybe used for keyboard scrolling?
+            - doesn't set `focus` or `focus-visible`.
     - event handlers.
+        - more events.
+        - multiple handlers.
         - add handler: handler -> handler weak ref.
         - remove handler.
     - per-element styling api (set/get).
-    - more style props.
+
+- cleanup.
+    - viewport util.
+    - clip_content util.
+    - set scroll pos util.
+    - set hover, active, focus util.
+    - some clear conventions for NodeData state ~ caching.
+
+
+- things that need doing:
+    - event propagation.
+    - scrollbar "buttons".
+        - thinking impl as nodes.
+        - they kinda act like non-focusable buttons/sliders.
+        - (the entire element takes focus, when tabbed to).
+        - maybe a scrollbar NodeKind?
+    - style rules?
+    - style as *list* of props.
+        - computed style as "map".
+        - style props are processed sequentially.
+        - style props can use compound attributes (eg: `border: 1px black`).
+    - more & multiple event handlers.
+    - more visual style props.
         - font family/style.
         - corners.
         - borders.
         - shadows.
-    - which elements can be hovered/active?
+    - more input elements.
+    - structured style prop repr.
+    - selection.
     - tab navigation.
-    - verify no duplicates for set children.
-
-- horizon:
-    - more style:
-        - classes.
-        - rules.
-        - structured repr.
-    - project structure: library & examples.
+    - caching (style, render children, layout).
+    - proper set_children.
 
 
 - backlog:

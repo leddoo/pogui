@@ -109,6 +109,7 @@ pub trait IGui {
     fn on_mouse_move(&mut self, x: f32, y: f32);
     fn on_mouse_down(&mut self);
     fn on_mouse_up(&mut self);
+    fn on_mouse_wheel(&mut self, delta: f32, shift_down: bool);
 
     fn set_window_size(&mut self, w: f32, h: f32);
 
@@ -597,6 +598,11 @@ impl IGui for Gui {
     }
 
     fn on_mouse_down(&mut self) {
+        // TODO: handle this gracefully.
+        // it did fire. not 100% sure why.
+        // prob cause don't register for mouse leave events.
+        // but shouldn't really assume valid input msgs anyway.
+        // cause other programs can send them directly, right?
         assert!(self.active.is_none());
 
         if let Some(hover) = self.hover {
@@ -634,6 +640,11 @@ impl IGui for Gui {
         self.active = None;
     }
 
+    fn on_mouse_wheel(&mut self, delta: f32, shift_down: bool) {
+        let Some(hover) = self.hover else { return };
+        hover.borrow_mut(self).on_mouse_wheel(delta, shift_down);
+    }
+
     fn set_window_size(&mut self, w: f32, h: f32) {
         let new_size = [w, h];
         if new_size == self.window_size {
@@ -665,7 +676,7 @@ impl IGui for Gui {
         let mut root = self.root.borrow_mut(self);
         root.style(self, &Style::new());
         root.render_children(self.ctx, self);
-        root.layout(self, LayoutBox::tight([w/2.0, h]));
+        root.layout(self, LayoutBox::tight([(w/2.0).ceil(), h]));
         root.paint(self, rt);
     }
 
