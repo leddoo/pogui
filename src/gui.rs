@@ -289,6 +289,69 @@ impl Gui {
         true
     }
 
+    fn next_pre_order<P: Fn(&NodeData) -> bool>(&self, node: Node, p: P) -> Option<Node> {
+        let mut at = node;
+        loop {
+            let d = at.borrow(self);
+            let first_child = d.first_child;
+            let mut parent = d.parent.unwrap();
+            let mut next   = d.next_sibling;
+            drop(d);
+
+            if let Some(first_child) = first_child {
+                at = first_child;
+            }
+            else {
+                if at == self.root {
+                    return None;
+                }
+
+                // go up, until we can go right.
+                while next.is_none() {
+                    at = parent;
+                    if at == self.root {
+                        return None;
+                    }
+
+                    let d = at.borrow(self);
+                    parent = d.parent.unwrap();
+                    next   = d.next_sibling;
+                }
+                at = next.unwrap();
+            }
+
+            if p(&at.borrow(self)) {
+                return Some(at);
+            }
+        }
+    }
+
+    fn prev_pre_order<P: Fn(&NodeData) -> bool>(&self, node: Node, p: P) -> Option<Node> {
+        let mut at = node;
+        while at != self.root {
+            let d = at.borrow(self);
+            let parent = d.parent.unwrap();
+            let prev   = d.prev_sibling;
+            drop(d);
+
+            if let Some(prev) = prev {
+                at = prev;
+
+                while let Some(last_child) = at.borrow(self).last_child {
+                    at = last_child;
+                }
+            }
+            else {
+                at = parent;
+            }
+
+            if p(&at.borrow(self)) {
+                return Some(at);
+            }
+        }
+        None
+    }
+
     fn next_post_order<P: Fn(&NodeData) -> bool>(&self, node: Node, p: P) -> Option<Node> {
         let mut at = node;
         while at != self.root {
@@ -679,10 +742,10 @@ impl IGui for Gui {
 
             let next_focus = 
                 if !shift_down {
-                    self.next_post_order(start_node, NodeData::takes_focus)
+                    self.next_pre_order(start_node, NodeData::takes_focus)
                 }
                 else {
-                    self.prev_post_order(start_node, NodeData::takes_focus)
+                    self.prev_pre_order(start_node, NodeData::takes_focus)
                 };
 
             if let Some(next_focus) = next_focus {
