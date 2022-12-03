@@ -3,12 +3,12 @@
 
 - present:
     - focus.
+        - pre-order seems way more intuitive.
         - passive focus:
             - click page, tab navigation starts there.
             - maybe used for keyboard scrolling?
             - doesn't set `focus` or `focus-visible`.
-        - events.
-        - scrollbars -> takes focus.
+        - keyboard & focus events.
 
 - horizon:
     - flex layout.
@@ -17,6 +17,10 @@
         - multiple handlers.
         - add handler: handler -> handler weak ref.
         - remove handler.
+        - how to prevent default behavior?
+            - plain "preventDefault" isn't a good api.
+            - want to disable specific behaviors.
+            - eg: prevent default on key down will disable scrolling, clicking, and tab navigation. you'd have to check which key is pressed to disable only scrolling. but key mappings may be platform specific.
     - per-element styling api (set/get).
 
 - cleanup.
@@ -56,6 +60,11 @@
 
 
 - backlog:
+    - keyboard scrolling.
+        - focus, or passive focus, or root node.
+    - scrollable elements take focus.
+        - tricky because need to lose focus when no longer have scrollbar.
+    - scroll parent if child can't scroll anymore, but only after a delay.
     - fix cursor stale state.
     - figure out layout rounding.
     - text layout:

@@ -606,7 +606,16 @@ impl NodeData {
             return None;
         }
 
-        // TODO: hit scrollbar -> hit me.
+        let viewport_x = me.size[0] - scrollbar_size(me.scrolling[1]);
+        let viewport_y = me.size[1] - scrollbar_size(me.scrolling[0]);
+
+        let hit_viewport = hit_me && x < viewport_x && y < viewport_y;
+
+        // hit scrollbar.
+        // TODO: cursor position?
+        if hit_me && !hit_viewport {
+            return Some((this, 0));
+        }
 
         let x = x + me.scroll_pos[0];
         let y = y + me.scroll_pos[1];
@@ -655,9 +664,9 @@ impl NodeData {
             return None;
         }
 
-        // TODO: closest cursor position.
+        // TODO: cursor position?
         if hit_me {
-            return Some((this.clone(), 0));
+            return Some((this, 0));
         }
 
         None
@@ -699,7 +708,7 @@ impl NodeData {
         //println!("{:?} mouse down", self as *const _);
     }
 
-    pub fn on_mouse_wheel(&mut self, delta: f32, shift_down: bool) {
+    pub fn on_mouse_wheel(&mut self, delta: f32, shift_down: bool) -> bool {
         let delta = delta.round();
 
         if !shift_down && self.scrolling[1] {
@@ -707,6 +716,7 @@ impl NodeData {
 
             let pos = self.scroll_pos[1] - delta;
             self.scroll_pos[1] = pos.clamp(0.0, self.content_size[1] - viewport);
+            return true;
         }
 
         if shift_down && self.scrolling[0] {
@@ -714,7 +724,10 @@ impl NodeData {
 
             let pos = self.scroll_pos[0] - delta;
             self.scroll_pos[0] = pos.clamp(0.0, self.content_size[0] - viewport);
+            return true;
         }
+
+        false
     }
 
     pub fn on_mouse_up(&mut self, _gui: &mut Gui) {

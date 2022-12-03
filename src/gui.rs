@@ -795,7 +795,17 @@ impl IGui for Gui {
 
     fn on_mouse_wheel(&mut self, delta: f32, shift_down: bool) {
         let Some(hover) = self.hover else { return };
-        hover.borrow_mut(self).on_mouse_wheel(delta, shift_down);
+
+        // TEMP: ad-hoc "propagation".
+        let root = self.root;
+        let mut at = hover;
+        loop {
+            let mut n = at.borrow_mut(self);
+            if n.on_mouse_wheel(delta, shift_down) || at == root {
+                break;
+            }
+            at = n.parent.unwrap();
+        }
     }
 
     fn set_window_size(&mut self, w: f32, h: f32) {
