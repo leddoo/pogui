@@ -17,6 +17,7 @@ pub struct Gui {
     hover:  Option<Node>,
     active: Option<Node>,
     focus:  Option<Node>,
+    passive_focus: Option<(Node, usize)>,
 
     window_size: [f32; 2],
 }
@@ -113,7 +114,7 @@ pub trait IGui {
     fn on_char(&mut self, cp: char, shift_down: bool);
 
     fn on_mouse_move(&mut self, x: f32, y: f32);
-    fn on_mouse_down(&mut self);
+    fn on_mouse_down(&mut self, x: f32, y: f32);
     fn on_mouse_up(&mut self);
     fn on_mouse_wheel(&mut self, delta: f32, shift_down: bool);
 
@@ -141,6 +142,7 @@ impl Gui {
             hover:  None,
             active: None,
             focus:  None,
+            passive_focus: None,
             window_size: [0.0; 2],
         };
         gui.root = gui.alloc_node(NodeKind::Div);
@@ -670,20 +672,26 @@ impl IGui for Gui {
         }
 
         if cp == '\t' {
-            if let Some(focus) = self.focus {
-                let next_focus = 
-                    if !shift_down {
-                        self.next_post_order(focus, NodeData::takes_focus)
-                    }
-                    else {
-                        self.prev_post_order(focus, NodeData::takes_focus)
-                    };
-                if let Some(next_focus) = next_focus {
-                    // TEMP
-                    focus.borrow_mut(self).focus = false;
-                    next_focus.borrow_mut(self).focus = true;
-                    self.focus = Some(next_focus);
+            let (start_node, _start_offset) =
+                self.focus.map(|node| (node, 0))
+                .or(self.passive_focus)
+                .unwrap_or((self.root, 0));
+
+            let next_focus = 
+                if !shift_down {
+                    self.next_post_order(start_node, NodeData::takes_focus)
                 }
+                else {
+                    self.prev_post_order(start_node, NodeData::takes_focus)
+                };
+
+            if let Some(next_focus) = next_focus {
+                // TEMP
+                if let Some(focus) = self.focus {
+                    focus.borrow_mut(self).focus = false;
+                }
+                next_focus.borrow_mut(self).focus = true;
+                self.focus = Some(next_focus);
             }
         }
     }
@@ -732,7 +740,7 @@ impl IGui for Gui {
         self.hover = new_hover;
     }
 
-    fn on_mouse_down(&mut self) {
+    fn on_mouse_down(&mut self, x: f32, y: f32) {
         // TODO: handle this gracefully.
         // it did fire. not 100% sure why.
         // prob cause don't register for mouse leave events.
@@ -772,6 +780,8 @@ impl IGui for Gui {
         }
 
         self.active = new_active;
+
+        self.passive_focus = NodeData::hit_test(self, self.root, x, y, |_| true);
     }
 
     fn on_mouse_up(&mut self) {

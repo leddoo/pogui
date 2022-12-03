@@ -335,7 +335,10 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
         }
 
         WM_LBUTTONDOWN => {
-            main.gui.on_mouse_down();
+            let x = lo_u16(lparam.0);
+            let y = hi_u16(lparam.0);
+
+            main.gui.on_mouse_down(x as f32, y as f32);
 
             InvalidateRect(window, None, false);
             LRESULT(0)

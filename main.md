@@ -2,18 +2,16 @@
     - focus.
 
 - present:
-    - focus.
-        - pre-order seems way more intuitive.
-        - passive focus:
-            - click page, tab navigation starts there.
-            - maybe used for keyboard scrolling?
-            - doesn't set `focus` or `focus-visible`.
-        - keyboard & focus events.
+    - pre-order for focus traversal.
 
 - horizon:
+    - usable as a library.
+        - windows "runtime".
+        - demo apps.
     - flex layout.
     - event handlers.
         - more events.
+            - mouse, keyboard, focus, active, hover, scroll, click.
         - multiple handlers.
         - add handler: handler -> handler weak ref.
         - remove handler.
