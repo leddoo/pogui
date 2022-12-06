@@ -1,13 +1,12 @@
 - focus:
-    - focus.
+    - demos & basic text editor.
 
 - present:
-    - pre-order for focus traversal.
-
-- horizon:
     - usable as a library.
         - windows "runtime".
         - demo apps.
+
+- horizon:
     - flex layout.
     - event handlers.
         - more events.

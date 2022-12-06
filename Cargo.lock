@@ -3,6 +3,13 @@
 version = 3
 
 [[package]]
+name = "demo"
+version = "0.1.0"
+dependencies = [
+ "pogui",
+]
+
+[[package]]
 name = "pogui"
 version = "0.1.0"
 dependencies = [

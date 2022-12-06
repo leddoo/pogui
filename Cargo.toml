@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 
+
+[workspace]
+members = [
+    "examples/*",
+]
+
+
 [target.'cfg(windows)'.dependencies]
 
 [target.'cfg(windows)'.dependencies.windows]

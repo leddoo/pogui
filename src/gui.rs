@@ -104,6 +104,11 @@ pub trait IGui {
     fn get_prev_sibling(&self, node: Node) -> Option<Node>;
     fn get_next_sibling(&self, node: Node) -> Option<Node>;
 
+    fn next_node_pre_order(&self, node: Node) -> Option<Node>;
+    fn prev_node_pre_order(&self, node: Node) -> Option<Node>;
+    fn next_node_post_order(&self, node: Node) -> Option<Node>;
+    fn prev_node_post_order(&self, node: Node) -> Option<Node>;
+
     fn set_style(&mut self, node: Node, style: Style);
     fn set_text(&mut self, node: Node, text: String);
 
@@ -697,6 +702,24 @@ impl IGui for Gui {
     #[inline]
     fn get_next_sibling(&self, node: Node) -> Option<Node> {
         node.borrow(self).next_sibling
+    }
+
+
+    #[inline]
+    fn next_node_pre_order(&self, node: Node) -> Option<Node> {
+        self.next_pre_order(node, |_| true)
+    }
+    #[inline]
+    fn prev_node_pre_order(&self, node: Node) -> Option<Node> {
+        self.prev_pre_order(node, |_| true)
+    }
+    #[inline]
+    fn next_node_post_order(&self, node: Node) -> Option<Node> {
+        self.next_post_order(node, |_| true)
+    }
+    #[inline]
+    fn prev_node_post_order(&self, node: Node) -> Option<Node> {
+        self.prev_post_order(node, |_| true)
     }
 
 

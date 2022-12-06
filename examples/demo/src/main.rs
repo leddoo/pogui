@@ -3,18 +3,9 @@
 use core::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-mod win;
-mod unicode;
-mod common;
-mod ctx;
-mod gui;
-mod text;
-mod node;
-
-
-use crate::win::*;
-use crate::ctx::*;
-use crate::gui::*;
+use pogui::win::*;
+use pogui::gui::*;
+use pogui::Ctx;
 
 
 

@@ -730,6 +730,7 @@ impl NodeData {
         false
     }
 
+    #[allow(dead_code)] // TEMP
     pub fn on_mouse_up(&mut self, _gui: &mut Gui) {
         //println!("{:?} mouse up", self as *const _);
     }
