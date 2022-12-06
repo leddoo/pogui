@@ -1,10 +1,19 @@
 - focus:
-    - demos & basic text editor.
+    - ?
 
 - present:
-    - calculator.
+    - plan next steps.
+        - `send_message` api?
+        - helpers to create elements?
 
 - horizon:
+    - scrollbar / layout fix:
+        - if need x-scroll, try to grow in y to fit content.
+        - and vice versa.
+    - focus fixes:
+        - stale focus state on element after `swap()`.
+        - clear focus on child if remove parent.
+            - consider focus_inside.
     - flex layout.
     - event handlers.
         - more events.
@@ -19,6 +28,7 @@
     - per-element styling api (set/get).
 
 - cleanup.
+    - no more `w/2` & create/destroy spam.
     - viewport util.
     - clip_content util.
     - set scroll pos util.
