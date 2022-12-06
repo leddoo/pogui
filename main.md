@@ -2,9 +2,7 @@
     - demos & basic text editor.
 
 - present:
-    - usable as a library.
-        - windows "runtime".
-        - demo apps.
+    - calculator.
 
 - horizon:
     - flex layout.
