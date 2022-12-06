@@ -6,6 +6,7 @@ use crate::common::Cursor;
 use crate::gui::{Gui, IGui};
 
 
+// TODO, safety: destroy window on drop.
 pub struct NativeGui {
     data: Box<RefCell<NativeGuiData>>,
 }
@@ -98,7 +99,7 @@ impl NativeGui {
             rt, rt_size,
         }));
 
-        SetWindowLongPtrW(window, GWLP_USERDATA, data.as_ptr() as isize);
+        SetWindowLongPtrW(window, GWLP_USERDATA, &*data as *const RefCell<NativeGuiData> as isize);
 
         NativeGui { data }
     }}
@@ -113,8 +114,6 @@ impl NativeGui {
             println!("panic: {}", info);
             loop {}
         }));
-
-
 
         // event loop.
         loop {unsafe {
